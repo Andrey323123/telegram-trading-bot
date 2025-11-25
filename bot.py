@@ -1,13 +1,12 @@
 # bot.py
 import logging
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import mysql.connector
 from mysql.connector import Error
 from datetime import datetime, timedelta
 from contextlib import contextmanager
-import time
-import threading
 
 # Настройка логирования
 logging.basicConfig(
@@ -163,28 +162,22 @@ db = Database()
 class TradingBot:
     def __init__(self, token):
         self.token = token
-        self.updater = Updater(token, use_context=True)
-        self.dispatcher = self.updater.dispatcher
+        self.application = Application.builder().token(token).build()
         self.setup_handlers()
-        self.reminder_thread = None
-        self.is_running = False
         
     def setup_handlers(self):
-        self.dispatcher.add_handler(CommandHandler("start", self.start))
-        self.dispatcher.add_handler(CallbackQueryHandler(self.button_handler))
-        self.dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, self.handle_user_data))
+        self.application.add_handler(CommandHandler("start", self.start))
+        self.application.add_handler(CallbackQueryHandler(self.button_handler))
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_user_data))
+        
+        # Запускаем проверку напоминаний каждые 60 секунд
+        self.application.job_queue.run_repeating(
+            callback=self.send_reminders,
+            interval=60,
+            first=10
+        )
     
-    def start_reminder_scheduler(self):
-        """Запуск планировщика напоминаний в отдельном потоке"""
-        while self.is_running:
-            try:
-                self.send_reminders()
-                time.sleep(60)  # Проверяем каждую минуту
-            except Exception as e:
-                logging.error(f"Ошибка в планировщике напоминаний: {e}")
-                time.sleep(60)
-    
-    def send_reminders(self):
+    async def send_reminders(self, context: ContextTypes.DEFAULT_TYPE):
         """Отправка напоминаний"""
         users = db.get_users_for_reminder()
         for user in users:
@@ -200,15 +193,15 @@ class TradingBot:
                 else:
                     continue
                     
-                self.updater.bot.send_message(chat_id=user_id, text=message)
+                await context.bot.send_message(chat_id=user_id, text=message)
                 db.update_reminder_sent(user_id)
                 logging.info(f"Напоминание #{reminders_sent + 1} отправлено → {user_id} ({first_name})")
                 
-                time.sleep(1)  # антифлуд
+                await asyncio.sleep(1)  # антифлуд
             except Exception as e:
                 logging.error(f"Ошибка отправки {user_id}: {e}")
     
-    def start(self, update: Update, context: CallbackContext):
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         user_data = {
             'user_id': user.id,
@@ -224,9 +217,9 @@ class TradingBot:
         
         keyboard = [[InlineKeyboardButton("🚀 Узнать о VIP преимуществах", callback_data="vip_benefits")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
     
-    def show_vip_benefits(self, update: Update, context: CallbackContext):
+    async def show_vip_benefits(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         db.log_interaction(user_id, 'viewed_vip_benefits')
         
@@ -255,11 +248,11 @@ https://nmofficialru.com/o2o7sqk1265d
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         if hasattr(update, 'callback_query'):
-            update.callback_query.edit_message_text(vip_text, reply_markup=reply_markup, parse_mode='Markdown')
+            await update.callback_query.edit_message_text(vip_text, reply_markup=reply_markup, parse_mode='Markdown')
         else:
-            update.message.reply_text(vip_text, reply_markup=reply_markup, parse_mode='Markdown')
+            await update.message.reply_text(vip_text, reply_markup=reply_markup, parse_mode='Markdown')
     
-    def show_has_broker_options(self, update: Update, context: CallbackContext):
+    async def show_has_broker_options(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         db.log_interaction(user_id, 'selected_has_broker')
         
@@ -280,9 +273,9 @@ https://nmofficialru.com/o2o7sqk1265d
             [InlineKeyboardButton("⬅️ Назад к преимуществам", callback_data="vip_benefits")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.callback_query.edit_message_text(broker_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.callback_query.edit_message_text(broker_text, reply_markup=reply_markup, parse_mode='Markdown')
     
-    def show_payment_instructions(self, update: Update, context: CallbackContext):
+    async def show_payment_instructions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         user = update.effective_user
         db.log_interaction(user_id, 'clicked_make_payment')
@@ -302,9 +295,9 @@ https://nmofficialru.com/o2o7sqk1265d
             [InlineKeyboardButton("⬅️ Назад к тарифам", callback_data="has_broker")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.callback_query.edit_message_text(payment_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.callback_query.edit_message_text(payment_text, reply_markup=reply_markup, parse_mode='Markdown')
     
-    def show_completed_registration(self, update: Update, context: CallbackContext):
+    async def show_completed_registration(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         user = update.effective_user
         db.log_interaction(user_id, 'selected_completed_registration')
@@ -318,31 +311,31 @@ https://nmofficialru.com/o2o7sqk1265d
         
         keyboard = [[InlineKeyboardButton("⬅️ Назад к преимуществам", callback_data="vip_benefits")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.callback_query.edit_message_text(registration_text, reply_markup=reply_markup)
+        await update.callback_query.edit_message_text(registration_text, reply_markup=reply_markup)
         
         # Второе сообщение с информацией о резервировании места
         reservation_text = f"Привет, {user.first_name}, просто хочу сообщить тебе, что я зарезервирую для тебя бесплатное место на ближайшие 24 часа!"
-        update.callback_query.message.reply_text(reservation_text)
+        await update.callback_query.message.reply_text(reservation_text)
         
         context.user_data['awaiting_registration_data'] = True
     
-    def button_handler(self, update: Update, context: CallbackContext):
+    async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        query.answer()
+        await query.answer()
         data = query.data
         
         if data == "vip_benefits":
-            self.show_vip_benefits(update, context)
+            await self.show_vip_benefits(update, context)
         elif data == "has_broker":
-            self.show_has_broker_options(update, context)
+            await self.show_has_broker_options(update, context)
         elif data == "completed_registration":
-            self.show_completed_registration(update, context)
+            await self.show_completed_registration(update, context)
         elif data == "make_payment":
-            self.show_payment_instructions(update, context)
+            await self.show_payment_instructions(update, context)
         elif data == "back_to_start":
-            self.start(update, context)
+            await self.start(update, context)
     
-    def handle_user_data(self, update: Update, context: CallbackContext):
+    async def handle_user_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         user_data_text = update.message.text
         
@@ -358,24 +351,17 @@ https://nmofficialru.com/o2o7sqk1265d
 ⏳ *Ожидайте, пожалуйста!*
 
 Мы зарезервировали для вас место на 24 часа! 🎉"""
-            update.message.reply_text(confirmation_text, parse_mode='Markdown')
+            await update.message.reply_text(confirmation_text, parse_mode='Markdown')
         else:
             db.log_interaction(user_id, 'sent_message', user_data_text)
             response_text = "🤖 Я бот для подключения к VIP сигналам по золоту.\n\nИспользуйте кнопки меню для навигации или напишите @Skalpingx для связи с менеджером."
-            update.message.reply_text(response_text)
+            await update.message.reply_text(response_text)
     
     def run(self):
         """Запуск бота"""
         try:
             db.create_tables()
             print("✅ База данных готова")
-            
-            # Запускаем планировщик напоминаний
-            self.is_running = True
-            self.reminder_thread = threading.Thread(target=self.start_reminder_scheduler)
-            self.reminder_thread.daemon = True
-            self.reminder_thread.start()
-            
             print("🟢 Бот запущен и готов к работе!")
             print("🔍 Найдите бота в Telegram и отправьте /start")
             print("⏰ Система напоминаний активирована")
@@ -383,13 +369,10 @@ https://nmofficialru.com/o2o7sqk1265d
             print("👨‍💼 Менеджер: @Skalpingx")
             print("\nДля остановки нажмите Ctrl+C")
             
-            self.updater.start_polling()
-            self.updater.idle()
+            self.application.run_polling()
             
         except Exception as e:
             print(f"🔴 Ошибка запуска бота: {e}")
-        finally:
-            self.is_running = False
 
 def main():
     bot = TradingBot(BOT_TOKEN)
