@@ -11,11 +11,12 @@ class Database:
         self.config = {
             'host': os.getenv('MYSQLHOST', 'localhost'),
             'port': int(os.getenv('MYSQLPORT', '3306')),
-            'database': os.getenv('MYSQLDATABASE', 'telegram_sales_funnel'),
+            'database': os.getenv('MYSQLDATABASE', 'railway'),
             'user': os.getenv('MYSQLUSER', 'root'),
-            'password': os.getenv('MYSQLPASSWORD', '111111'),
+            'password': os.getenv('MYSQLPASSWORD', ''),
             'charset': 'utf8mb4'
         }
+        print(f"🔧 Настройки БД: {self.config['host']}:{self.config['port']}, база: {self.config['database']}")
     
     @contextmanager
     def get_connection(self):
@@ -25,7 +26,7 @@ class Database:
             yield connection
         except Error as e:
             logging.error(f"Ошибка подключения к MySQL: {e}")
-            print(f"🔴 Детали подключения: {self.config['host']}:{self.config['port']}")
+            print(f"🔴 Не удалось подключиться к БД: {self.config}")
             raise
         finally:
             if connection and connection.is_connected():
@@ -45,15 +46,12 @@ class Database:
                         username VARCHAR(100),
                         first_name VARCHAR(100),
                         last_name VARCHAR(100),
-                        phone VARCHAR(20),
-                        email VARCHAR(100),
-                        status ENUM('new', 'lead', 'waiting_verification', 'customer', 'rejected') DEFAULT 'new',
+                        status VARCHAR(50) DEFAULT 'new',
                         registration_data TEXT,
                         last_reminder DATETIME,
                         reminders_sent INT DEFAULT 0,
                         source VARCHAR(100) DEFAULT 'start_command',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
                 
@@ -86,8 +84,7 @@ class Database:
                     ON DUPLICATE KEY UPDATE
                     username = VALUES(username),
                     first_name = VALUES(first_name),
-                    last_name = VALUES(last_name),
-                    updated_at = CURRENT_TIMESTAMP
+                    last_name = VALUES(last_name)
                 """
                 
                 cursor.execute(query, (
@@ -100,11 +97,11 @@ class Database:
                 ))
                 
                 conn.commit()
-                return cursor.lastrowid
+                return True
                 
         except Error as e:
             print(f"Ошибка добавления пользователя: {e}")
-            return None
+            return False
     
     def log_interaction(self, user_id, action, details=None):
         """Логирование взаимодействия с пользователем"""
@@ -112,11 +109,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                query = """
-                    INSERT INTO interactions (user_id, action, details)
-                    VALUES (%s, %s, %s)
-                """
-                
+                query = "INSERT INTO interactions (user_id, action, details) VALUES (%s, %s, %s)"
                 cursor.execute(query, (user_id, action, details))
                 conn.commit()
                 
@@ -129,7 +122,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                query = "UPDATE users SET registration_data = %s, status = 'waiting_verification' WHERE user_id = %s"
+                query = "UPDATE users SET registration_data = %s, status = 'waiting' WHERE user_id = %s"
                 cursor.execute(query, (registration_data, user_id))
                 conn.commit()
                 
