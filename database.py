@@ -2,16 +2,18 @@
 import mysql.connector
 from mysql.connector import Error
 import logging
-from datetime import datetime
+import os
 from contextlib import contextmanager
 
 class Database:
     def __init__(self):
+        # Получаем настройки из переменных окружения Railway
         self.config = {
-            'host': 'localhost',
-            'database': 'telegram_sales_funnel',
-            'user': 'root',  # Замените на вашего пользователя
-            'password': '111111',  # Замените на ваш пароль
+            'host': os.getenv('MYSQLHOST', 'localhost'),
+            'port': int(os.getenv('MYSQLPORT', '3306')),
+            'database': os.getenv('MYSQLDATABASE', 'telegram_sales_funnel'),
+            'user': os.getenv('MYSQLUSER', 'root'),
+            'password': os.getenv('MYSQLPASSWORD', '111111'),
             'charset': 'utf8mb4'
         }
     
@@ -23,6 +25,7 @@ class Database:
             yield connection
         except Error as e:
             logging.error(f"Ошибка подключения к MySQL: {e}")
+            print(f"🔴 Детали подключения: {self.config['host']}:{self.config['port']}")
             raise
         finally:
             if connection and connection.is_connected():
@@ -34,7 +37,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Таблица users уже создана, добавляем если нужно дополнительные поля
+                # Таблица users
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -60,41 +63,16 @@ class Database:
                         user_id BIGINT NOT NULL,
                         action VARCHAR(100) NOT NULL,
                         details TEXT,
-                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS purchases (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        user_id BIGINT NOT NULL,
-                        product_name VARCHAR(200) NOT NULL,
-                        amount DECIMAL(10,2),
-                        status ENUM('pending', 'completed', 'failed') DEFAULT 'pending',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS reminders (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        user_id BIGINT NOT NULL,
-                        reminder_type VARCHAR(50) NOT NULL,
-                        scheduled_at DATETIME NOT NULL,
-                        sent BOOLEAN DEFAULT FALSE,
-                        sent_at DATETIME,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
                 
                 conn.commit()
-                logging.info("Таблицы успешно созданы/проверены")
+                print("✅ Таблицы успешно созданы/проверены")
                 
         except Error as e:
-            logging.error(f"Ошибка создания таблиц: {e}")
+            print(f"❌ Ошибка создания таблиц: {e}")
+            raise
     
     def add_user(self, user_data):
         """Добавление нового пользователя"""
@@ -125,7 +103,7 @@ class Database:
                 return cursor.lastrowid
                 
         except Error as e:
-            logging.error(f"Ошибка добавления пользователя: {e}")
+            print(f"Ошибка добавления пользователя: {e}")
             return None
     
     def log_interaction(self, user_id, action, details=None):
@@ -143,20 +121,7 @@ class Database:
                 conn.commit()
                 
         except Error as e:
-            logging.error(f"Ошибка логирования взаимодействия: {e}")
-    
-    def update_user_status(self, user_id, status):
-        """Обновление статуса пользователя"""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                query = "UPDATE users SET status = %s WHERE user_id = %s"
-                cursor.execute(query, (status, user_id))
-                conn.commit()
-                
-        except Error as e:
-            logging.error(f"Ошибка обновления статуса: {e}")
+            print(f"Ошибка логирования взаимодействия: {e}")
     
     def save_registration_data(self, user_id, registration_data):
         """Сохранение данных регистрации пользователя"""
@@ -169,59 +134,7 @@ class Database:
                 conn.commit()
                 
         except Error as e:
-            logging.error(f"Ошибка сохранения данных регистрации: {e}")
-    
-    def get_user(self, user_id):
-        """Получение данных пользователя"""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor(dictionary=True)
-                
-                query = "SELECT * FROM users WHERE user_id = %s"
-                cursor.execute(query, (user_id,))
-                return cursor.fetchone()
-                
-        except Error as e:
-            logging.error(f"Ошибка получения пользователя: {e}")
-            return None
-    
-    def get_users_for_reminder(self, status='new', hours_ago=24):
-        """Получение пользователей для напоминания"""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor(dictionary=True)
-                
-                query = """
-                    SELECT * FROM users 
-                    WHERE status = %s 
-                    AND (last_reminder IS NULL OR last_reminder < DATE_SUB(NOW(), INTERVAL %s HOUR))
-                    AND reminders_sent < 5
-                """
-                
-                cursor.execute(query, (status, hours_ago))
-                return cursor.fetchall()
-                
-        except Error as e:
-            logging.error(f"Ошибка получения пользователей для напоминания: {e}")
-            return []
-    
-    def update_reminder_sent(self, user_id):
-        """Обновление времени последнего напоминания"""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                query = """
-                    UPDATE users 
-                    SET last_reminder = NOW(), reminders_sent = reminders_sent + 1 
-                    WHERE user_id = %s
-                """
-                
-                cursor.execute(query, (user_id,))
-                conn.commit()
-                
-        except Error as e:
-            logging.error(f"Ошибка обновления напоминания: {e}")
+            print(f"Ошибка сохранения данных регистрации: {e}")
 
 # Создаем глобальный экземпляр базы данных
 db = Database()
