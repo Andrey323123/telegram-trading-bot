@@ -2,9 +2,10 @@
 import logging
 import asyncio
 import os
+import json
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from database import db
 
 # Настройка логирования
 logging.basicConfig(
@@ -14,6 +15,86 @@ logging.basicConfig(
 
 # Получаем токен из переменных окружения Railway
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI')
+
+class SimpleDB:
+    def __init__(self):
+        self.users_file = 'users.json'
+        self.interactions_file = 'interactions.json'
+        self._ensure_files_exist()
+    
+    def _ensure_files_exist(self):
+        """Создаем файлы если их нет"""
+        for filename in [self.users_file, self.interactions_file]:
+            if not os.path.exists(filename):
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+    
+    def _load_data(self, filename):
+        """Загружаем данные из файла"""
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logging.error(f"Ошибка загрузки {filename}: {e}")
+            return []
+    
+    def _save_data(self, filename, data):
+        """Сохраняем данные в файл"""
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.error(f"Ошибка сохранения {filename}: {e}")
+    
+    def add_user(self, user_data):
+        """Добавляем пользователя"""
+        users = self._load_data(self.users_file)
+        
+        # Проверяем нет ли уже такого пользователя
+        user_exists = any(user.get('user_id') == user_data.get('user_id') for user in users)
+        
+        if not user_exists:
+            user_data['created_at'] = datetime.now().isoformat()
+            users.append(user_data)
+            self._save_data(self.users_file, users)
+            logging.info(f"✅ Добавлен пользователь: {user_data.get('user_id')}")
+            return True
+        return False
+    
+    def log_interaction(self, user_id, action, data=None):
+        """Логируем взаимодействие"""
+        interactions = self._load_data(self.interactions_file)
+        
+        interaction = {
+            'user_id': user_id,
+            'action': action,
+            'data': data,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        interactions.append(interaction)
+        self._save_data(self.interactions_file, interactions)
+        logging.info(f"📝 Логировано действие: {user_id} - {action}")
+    
+    def save_registration_data(self, user_id, data):
+        """Сохраняем данные регистрации"""
+        users = self._load_data(self.users_file)
+        
+        for user in users:
+            if user.get('user_id') == user_id:
+                user['registration_data'] = data
+                user['registration_date'] = datetime.now().isoformat()
+                break
+        
+        self._save_data(self.users_file, users)
+        logging.info(f"💾 Сохранены данные регистрации для: {user_id}")
+    
+    def get_all_users(self):
+        """Получаем всех пользователей"""
+        return self._load_data(self.users_file)
+
+# Создаем экземпляр базы данных
+db = SimpleDB()
 
 async def send_reminders(update: Update):
     """Умные напоминания (30 часов и 72 часа)"""
@@ -199,11 +280,7 @@ async def handle_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     try:
-        # Инициализируем базу данных
-        from init_db import init_database
-        init_database()
-        
-        # Создаем приложение БЕЗ JobQueue
+        # Создаем приложение
         application = Application.builder().token(BOT_TOKEN).build()
         
         # Добавляем обработчики
@@ -211,12 +288,13 @@ def main():
         application.add_handler(CallbackQueryHandler(button_handler))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_data))
         
-        print("✅ База данных готова")
+        print("✅ База данных готова (JSON файлы)")
         print("🟢 Бот запущен и готов к работе!")
         print("🔍 Найдите бота в Telegram и отправьте /start")
         print("⏰ Умные напоминания активированы")
         print("⏳ Напоминания: 30ч → 1-е, 72ч → 2-е")
         print("👨‍💼 Менеджер: @Skalpingx")
+        print("💾 Данные сохраняются в users.json и interactions.json")
         print("\nДля остановки нажмите Ctrl+C")
         
         # Запускаем бота
@@ -224,7 +302,6 @@ def main():
         
     except Exception as e:
         print(f"🔴 Критическая ошибка запуска: {e}")
-        print("💡 Проверьте настройки базы данных в Railway")
 
 if __name__ == "__main__":
     main()
