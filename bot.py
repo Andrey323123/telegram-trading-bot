@@ -1,4 +1,4 @@
-# bot_with_reminders.py
+# bot.py
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
@@ -14,10 +14,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Ваш токен
 BOT_TOKEN = "8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI"
 
-# Класс для работы с MySQL базой данных
 class Database:
     def __init__(self):
         self.config = {
@@ -180,6 +178,44 @@ class Database:
                 conn.commit()
         except Error as e:
             logging.error(f"Ошибка отметки напоминания: {e}")
+    
+    def get_users_for_reminder(self):
+        """Пользователи, которым нужно отправить напоминание"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(dictionary=True)
+                query = """
+                    SELECT * FROM users 
+                    WHERE status = 'new'
+                    AND reminders_sent = 0
+                    AND created_at <= NOW() - INTERVAL 30 HOUR
+                    AND created_at > NOW() - INTERVAL 31 HOUR
+                    OR 
+                    status = 'new'
+                    AND reminders_sent = 1
+                    AND created_at <= NOW() - INTERVAL 72 HOUR
+                    AND created_at > NOW() - INTERVAL 73 HOUR
+                """
+                cursor.execute(query)
+                users = cursor.fetchall()
+                return users
+        except Error as e:
+            logging.error(f"Ошибка получения пользователей: {e}")
+            return []
+    
+    def update_reminder_sent(self, user_id):
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                query = """
+                    UPDATE users 
+                    SET last_reminder = NOW(), reminders_sent = reminders_sent + 1 
+                    WHERE user_id = %s
+                """
+                cursor.execute(query, (user_id,))
+                conn.commit()
+        except Error as e:
+            logging.error(f"Ошибка обновления напоминания: {e}")
 
 # Создаем экземпляр базы данных
 db = Database()
@@ -189,53 +225,42 @@ class TradingBot:
         self.token = token
         self.application = Application.builder().token(token).build()
         self.setup_handlers()
-        self.is_running = False
         
     def setup_handlers(self):
         self.application.add_handler(CommandHandler("start", self.start))
         self.application.add_handler(CallbackQueryHandler(self.button_handler))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_user_data))
         
-        # Добавляем job для напоминаний
+        # Запускаем проверку напоминаний каждые 60 секунд
         self.application.job_queue.run_repeating(
-            self.check_and_send_reminders,
-            interval=60,  # Проверяем каждую минуту
-            first=10      # Первая проверка через 10 секунд
+            callback=self.send_reminders,
+            interval=60,
+            first=10
         )
     
-    async def check_and_send_reminders(self, context: ContextTypes.DEFAULT_TYPE):
-        """Проверка и отправка напоминаний"""
-        try:
-            reminders = db.get_pending_reminders()
-            for reminder in reminders:
-                try:
-                    user_id = reminder['user_id']
-                    reminder_type = reminder['reminder_type']
-                    first_name = reminder['first_name']
+    async def send_reminders(self, context: ContextTypes.DEFAULT_TYPE):
+        """Отправка напоминаний"""
+        users = db.get_users_for_reminder()
+        for user in users:
+            user_id = user['user_id']
+            first_name = user['first_name'] or "друг"
+            reminders_sent = user['reminders_sent']
+            
+            try:
+                if reminders_sent == 0:
+                    message = f"👋 Привет, {first_name}! Я зарезервировал одно место в VIP, жду ответа 🙏"
+                elif reminders_sent == 1:
+                    message = f"🤝 Привет, {first_name}! Я все еще держу место для тебя, отпишись как будешь готов 🤝"
+                else:
+                    continue
                     
-                    if reminder_type == "30_hours":
-                        message = f"👋 Привет, {first_name}! Я зарезервировал одно место в VIP, жду ответа 🙏"
-                    elif reminder_type == "72_hours":
-                        message = f"🤝 Привет, {first_name}! Я все еще держу место для тебя, отпишись как будешь готов 🤝"
-                    else:
-                        continue
-                    
-                    # Отправляем сообщение
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=message
-                    )
-                    
-                    # Помечаем как отправленное
-                    db.mark_reminder_sent(reminder['id'])
-                    db.log_interaction(user_id, f"reminder_sent_{reminder_type}")
-                    
-                    logging.info(f"Отправлено напоминание {reminder_type} пользователю {user_id}")
-                    
-                except Exception as e:
-                    logging.error(f"Ошибка отправки напоминания {reminder['id']}: {e}")
-        except Exception as e:
-            logging.error(f"Ошибка в обработчике напоминаний: {e}")
+                await context.bot.send_message(chat_id=user_id, text=message)
+                db.update_reminder_sent(user_id)
+                logging.info(f"Напоминание #{reminders_sent + 1} отправлено → {user_id} ({first_name})")
+                
+                await asyncio.sleep(1)  # антифлуд
+            except Exception as e:
+                logging.error(f"Ошибка отправки {user_id}: {e}")
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -250,8 +275,8 @@ class TradingBot:
         db.log_interaction(user.id, 'start_command')
         
         # Планируем напоминания
-        db.schedule_reminder(user.id, "30_hours", 30)  # Через 30 часов
-        db.schedule_reminder(user.id, "72_hours", 72)  # Через 72 часов
+        db.schedule_reminder(user.id, "30_hours", 30)
+        db.schedule_reminder(user.id, "72_hours", 72)
         
         welcome_text = f"👋 Приветствую, {user.first_name}!\n\nДобро пожаловать в элитное сообщество трейдеров!\n\nЯ помогу вам получить доступ к VIP сигналам по золоту и премиум обучению."
         
@@ -402,7 +427,6 @@ https://nmofficialru.com/o2o7sqk1265d
         try:
             db.create_tables()
             print("✅ База данных готова")
-            
             print("🟢 Бот запущен и готов к работе!")
             print("🔍 Найдите бота в Telegram и отправьте /start")
             print("⏰ Система напоминаний активирована")
@@ -410,7 +434,6 @@ https://nmofficialru.com/o2o7sqk1265d
             print("👨‍💼 Менеджер: @Skalpingx")
             print("\nДля остановки нажмите Ctrl+C")
             
-            # Простой запуск polling
             self.application.run_polling()
             
         except Exception as e:
