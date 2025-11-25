@@ -19,9 +19,10 @@ class Database:
         self.config = {
             'host': 'localhost',
             'database': 'telegram_sales_funnel',
-            'user': 'root',
+            'user': 'root', 
             'password': '111111',
-            'charset': 'utf8mb4'
+            'charset': 'utf8mb4',
+            'port': 3306  # явно указываем порт
         }
     
     def create_tables(self):
@@ -53,7 +54,12 @@ class Database:
             conn.close()
             print("✅ Таблицы базы данных созданы/проверены")
         except Error as e:
-            print(f"Ошибка создания таблиц: {e}")
+            print(f"❌ Ошибка подключения к MySQL: {e}")
+            print("🔧 Решение:")
+            print("1. Убедитесь что MySQL сервер запущен")
+            print("2. Проверьте логин/пароль в config")
+            print("3. Проверьте что база данных 'telegram_sales_funnel' существует")
+            raise e
     
     def add_user(self, user_data):
         try:
@@ -289,27 +295,35 @@ async def handle_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(response_text)
 
 def main():
-    # Создаем таблицы
-    db.create_tables()
-    
-    # Создаем приложение БЕЗ JobQueue
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Добавляем обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_data))
-    
-    print("✅ База данных готова")
-    print("🟢 Бот запущен и готов к работе!")
-    print("🔍 Найдите бота в Telegram и отправьте /start")
-    print("⏰ Умные напоминания активированы")
-    print("⏳ Напоминания: 30ч → 1-е, 72ч → 2-е")
-    print("👨‍💼 Менеджер: @Skalpingx")
-    print("\nДля остановки нажмите Ctrl+C")
-    
-    # Запускаем бота
-    application.run_polling()
+    try:
+        # Создаем таблицы
+        db.create_tables()
+        
+        # Создаем приложение БЕЗ JobQueue
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # Добавляем обработчики
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CallbackQueryHandler(button_handler))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_data))
+        
+        print("✅ База данных готова")
+        print("🟢 Бот запущен и готов к работе!")
+        print("🔍 Найдите бота в Telegram и отправьте /start")
+        print("⏰ Умные напоминания активированы")
+        print("⏳ Напоминания: 30ч → 1-е, 72ч → 2-е")
+        print("👨‍💼 Менеджер: @Skalpingx")
+        print("\nДля остановки нажмите Ctrl+C")
+        
+        # Запускаем бота
+        application.run_polling()
+        
+    except Exception as e:
+        print(f"🔴 Критическая ошибка запуска: {e}")
+        print("💡 Проверьте:")
+        print("1. Запущен ли MySQL сервер")
+        print("2. Правильность настроек подключения")
+        print("3. Существует ли база данных 'telegram_sales_funnel'")
 
 if __name__ == "__main__":
     main()
