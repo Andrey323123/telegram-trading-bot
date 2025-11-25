@@ -13,7 +13,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-TOKEN = os.getenv("8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI")  # Укажи токен через Railway Secret
+TOKEN = "8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI"
+
 
 # ================= Команды ================= #
 
