@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -160,6 +159,7 @@ async def show_completed_registration(callback: CallbackQuery, state: FSMContext
 
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start(callback: CallbackQuery):
+    # Для callback query нужно использовать answer, а не отправлять новое сообщение
     await cmd_start(callback.message)
 
 @dp.message(RegistrationStates.awaiting_data)
@@ -202,13 +202,13 @@ async def check_reminders():
                     first_name = reminder['first_name']
                     
                     if reminder_type == "30_hours":
-                        message = f"👋 Привет, {first_name}! Я зарезервировал одно место в VIP, жду ответа 🙏"
+                        message_text = f"👋 Привет, {first_name}! Я зарезервировал одно место в VIP, жду ответа 🙏"
                     elif reminder_type == "72_hours":
-                        message = f"🤝 Привет, {first_name}! Я все еще держу место для тебя, отпишись как будешь готов 🤝"
+                        message_text = f"🤝 Привет, {first_name}! Я все еще держу место для тебя, отпишись как будешь готов 🤝"
                     else:
                         continue
                     
-                    await bot.send_message(chat_id=user_id, text=message)
+                    await bot.send_message(chat_id=user_id, text=message_text)
                     db.mark_reminder_sent(reminder['id'])
                     db.log_interaction(user_id, f"reminder_sent_{reminder_type}")
                     
@@ -222,6 +222,14 @@ async def check_reminders():
         await asyncio.sleep(60)  # Проверяем каждую минуту
 
 async def main():
+    # Проверяем токен бота
+    try:
+        bot_info = await bot.get_me()
+        print(f"✅ Бот @{bot_info.username} авторизован")
+    except Exception as e:
+        print(f"❌ Ошибка авторизации бота: {e}")
+        return
+    
     # Создаем таблицы
     db.create_tables()
     print("✅ База данных готова")
