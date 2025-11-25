@@ -11,7 +11,7 @@ class Database:
         self.config = {
             'host': os.getenv('MYSQLHOST', 'localhost'),
             'port': int(os.getenv('MYSQLPORT', '3306')),
-            'database': os.getenv('MYSQLDATABASE', 'railway'),
+            'database': os.getenv('MYSQLDATABASE', 'telegram_sales_funnel'),
             'user': os.getenv('MYSQLUSER', 'root'),
             'password': os.getenv('MYSQLPASSWORD', ''),
             'charset': 'utf8mb4'
