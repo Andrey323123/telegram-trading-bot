@@ -1,10 +1,10 @@
 # bot.py
 import logging
 import asyncio
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-import mysql.connector
-from mysql.connector import Error
+from database import db
 
 # Настройка логирования
 logging.basicConfig(
@@ -12,105 +12,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-BOT_TOKEN = "8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI"
-
-class Database:
-    def __init__(self):
-        self.config = {
-            'host': 'localhost',
-            'database': 'telegram_sales_funnel',
-            'user': 'root', 
-            'password': '111111',
-            'charset': 'utf8mb4',
-            'port': 3306  # явно указываем порт
-        }
-    
-    def create_tables(self):
-        try:
-            conn = mysql.connector.connect(**self.config)
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id BIGINT UNIQUE NOT NULL,
-                    username VARCHAR(100),
-                    first_name VARCHAR(100),
-                    last_name VARCHAR(100),
-                    status VARCHAR(50) DEFAULT 'new',
-                    registration_data TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS interactions (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    action VARCHAR(100) NOT NULL,
-                    details TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-            conn.close()
-            print("✅ Таблицы базы данных созданы/проверены")
-        except Error as e:
-            print(f"❌ Ошибка подключения к MySQL: {e}")
-            print("🔧 Решение:")
-            print("1. Убедитесь что MySQL сервер запущен")
-            print("2. Проверьте логин/пароль в config")
-            print("3. Проверьте что база данных 'telegram_sales_funnel' существует")
-            raise e
-    
-    def add_user(self, user_data):
-        try:
-            conn = mysql.connector.connect(**self.config)
-            cursor = conn.cursor()
-            query = """
-                INSERT INTO users (user_id, username, first_name, last_name, status)
-                VALUES (%s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                username = VALUES(username),
-                first_name = VALUES(first_name),
-                last_name = VALUES(last_name)
-            """
-            cursor.execute(query, (
-                user_data['user_id'],
-                user_data['username'],
-                user_data['first_name'],
-                user_data['last_name'],
-                'new'
-            ))
-            conn.commit()
-            conn.close()
-            return True
-        except Error as e:
-            print(f"Ошибка добавления пользователя: {e}")
-            return False
-    
-    def log_interaction(self, user_id, action, details=None):
-        try:
-            conn = mysql.connector.connect(**self.config)
-            cursor = conn.cursor()
-            query = "INSERT INTO interactions (user_id, action, details) VALUES (%s, %s, %s)"
-            cursor.execute(query, (user_id, action, details))
-            conn.commit()
-            conn.close()
-        except Error as e:
-            print(f"Ошибка логирования: {e}")
-    
-    def save_registration_data(self, user_id, registration_data):
-        try:
-            conn = mysql.connector.connect(**self.config)
-            cursor = conn.cursor()
-            query = "UPDATE users SET registration_data = %s, status = 'waiting' WHERE user_id = %s"
-            cursor.execute(query, (registration_data, user_id))
-            conn.commit()
-            conn.close()
-        except Error as e:
-            print(f"Ошибка сохранения данных: {e}")
-
-# Создаем экземпляр базы данных
-db = Database()
+# Получаем токен из переменных окружения Railway
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI')
 
 async def send_reminders(update: Update):
     """Умные напоминания (30 часов и 72 часа)"""
@@ -296,8 +199,9 @@ async def handle_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     try:
-        # Создаем таблицы
-        db.create_tables()
+        # Инициализируем базу данных
+        from init_db import init_database
+        init_database()
         
         # Создаем приложение БЕЗ JobQueue
         application = Application.builder().token(BOT_TOKEN).build()
@@ -320,10 +224,7 @@ def main():
         
     except Exception as e:
         print(f"🔴 Критическая ошибка запуска: {e}")
-        print("💡 Проверьте:")
-        print("1. Запущен ли MySQL сервер")
-        print("2. Правильность настроек подключения")
-        print("3. Существует ли база данных 'telegram_sales_funnel'")
+        print("💡 Проверьте настройки базы данных в Railway")
 
 if __name__ == "__main__":
     main()
