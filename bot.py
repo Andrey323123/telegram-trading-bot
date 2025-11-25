@@ -7,17 +7,16 @@ from telegram.ext import (
 from simpledb import json_db
 from database import db
 
-# Логирование
+# ================= Логирование ================= #
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
+# ================= Токен ================= #
 TOKEN = "8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI"
 
-
 # ================= Команды ================= #
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_data = {
@@ -55,6 +54,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "back_to_start":
         await start(update, context)
 
+# ================= Вспомогательные функции ================= #
 async def show_vip_benefits(query):
     vip_text = """🎯 *Преимущества VIP:*
 ⭐ Копирование сделок по золоту
@@ -103,7 +103,7 @@ async def show_completed_registration(query, context):
 
     context.user_data['awaiting_registration_data'] = True
 
-# ================== Обработка сообщений ================== #
+# ================= Обработка сообщений ================= #
 async def handle_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
@@ -121,7 +121,7 @@ async def handle_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= Запуск ================= #
 def main():
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).build()  # только Application
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
