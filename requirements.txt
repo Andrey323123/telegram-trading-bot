@@ -3,10 +3,6 @@ aioschedule
 aiomysql
 sqlalchemy[asyncio]
 python-dotenv
-telethon
-fastapi
-uvicorn[standard]
-tonsdk
 qrcode[pil]
 aiohttp
 rich
