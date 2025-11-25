@@ -4,7 +4,7 @@ import os
 import json
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, CallbackContext
 
 # Настройка логирования
 logging.basicConfig(
@@ -74,7 +74,7 @@ class SimpleDB:
 # Создаем экземпляр базы данных
 db = SimpleDB()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context: CallbackContext):
     user = update.effective_user
     user_data = {
         'user_id': user.id,
@@ -88,11 +88,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [[InlineKeyboardButton("🚀 Узнать о VIP преимуществах", callback_data="vip_benefits")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+    update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
-async def show_vip_benefits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def show_vip_benefits(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
     vip_text = """🎯 *Преимущества VIP:*
 
@@ -117,11 +117,11 @@ https://nmofficialru.com/o2o7sqk1265d
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(vip_text, reply_markup=reply_markup, parse_mode='Markdown')
+    query.edit_message_text(text=vip_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def show_has_broker_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def show_has_broker_options(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
     broker_text = """📈 *VIP группа Скальпинг Золото* 🥇 3-7 сигналов в день 
 
@@ -140,11 +140,11 @@ async def show_has_broker_options(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton("⬅️ Назад к преимуществам", callback_data="vip_benefits")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(broker_text, reply_markup=reply_markup, parse_mode='Markdown')
+    query.edit_message_text(text=broker_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def show_payment_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def show_payment_instructions(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     
     payment_text = """💳 *Для оформления оплаты:*
 
@@ -161,11 +161,11 @@ async def show_payment_instructions(update: Update, context: ContextTypes.DEFAUL
         [InlineKeyboardButton("⬅️ Назад к тарифам", callback_data="has_broker")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(payment_text, reply_markup=reply_markup, parse_mode='Markdown')
+    query.edit_message_text(text=payment_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def show_completed_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def show_completed_registration(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    query.answer()
     user = update.effective_user
     
     # Первое сообщение с инструкциями
@@ -177,31 +177,30 @@ async def show_completed_registration(update: Update, context: ContextTypes.DEFA
     
     keyboard = [[InlineKeyboardButton("⬅️ Назад к преимуществам", callback_data="vip_benefits")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(registration_text, reply_markup=reply_markup)
+    query.edit_message_text(text=registration_text, reply_markup=reply_markup)
     
     # Второе сообщение с информацией о резервировании места
     reservation_text = f"Привет, {user.first_name}, просто хочу сообщить тебе, что я зарезервирую для тебя бесплатное место на ближайшие 24 часа!"
-    await context.bot.send_message(chat_id=query.message.chat_id, text=reservation_text)
+    context.bot.send_message(chat_id=query.message.chat_id, text=reservation_text)
     
     context.user_data['awaiting_registration_data'] = True
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
     data = query.data
     
     if data == "vip_benefits":
-        await show_vip_benefits(update, context)
+        show_vip_benefits(update, context)
     elif data == "has_broker":
-        await show_has_broker_options(update, context)
+        show_has_broker_options(update, context)
     elif data == "completed_registration":
-        await show_completed_registration(update, context)
+        show_completed_registration(update, context)
     elif data == "make_payment":
-        await show_payment_instructions(update, context)
+        show_payment_instructions(update, context)
     elif data == "back_to_start":
-        await start(update, context)
+        start(update, context)
 
-async def handle_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_user_data(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     user_data_text = update.message.text
     
@@ -216,20 +215,21 @@ async def handle_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⏳ *Ожидайте, пожалуйста!*
 
 Мы зарезервировали для вас место на 24 часа! 🎉"""
-        await update.message.reply_text(confirmation_text, parse_mode='Markdown')
+        update.message.reply_text(confirmation_text, parse_mode='Markdown')
     else:
         response_text = "🤖 Я бот для подключения к VIP сигналам по золоту.\n\nИспользуйте кнопки меню для навигации или напишите @Skalpingx для связи с менеджером."
-        await update.message.reply_text(response_text)
+        update.message.reply_text(response_text)
 
 def main():
     try:
-        # Создаем приложение
-        application = Application.builder().token(BOT_TOKEN).build()
+        # Создаем updater (старый надежный способ)
+        updater = Updater(BOT_TOKEN, use_context=True)
+        dispatcher = updater.dispatcher
         
         # Добавляем обработчики
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CallbackQueryHandler(button_handler))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_data))
+        dispatcher.add_handler(CommandHandler("start", start))
+        dispatcher.add_handler(CallbackQueryHandler(button_handler))
+        dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_user_data))
         
         print("✅ База данных готова (JSON файлы)")
         print("🟢 Бот запущен и готов к работе!")
@@ -239,7 +239,8 @@ def main():
         print("\nДля остановки нажмите Ctrl+C")
         
         # Запускаем бота
-        application.run_polling()
+        updater.start_polling()
+        updater.idle()
         
     except Exception as e:
         print(f"🔴 Критическая ошибка запуска: {e}")
