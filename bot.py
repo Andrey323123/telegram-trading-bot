@@ -93,26 +93,22 @@ class SimpleDB:
         """Получаем всех пользователей"""
         return self._load_data(self.users_file)
 
-# Создаем экземпляр базы данных
+# Глобальная переменная для базы данных
 db = SimpleDB()
 
-async def send_reminders(update: Update):
+async def send_reminders(chat_id, first_name, bot):
     """Умные напоминания (30 часов и 72 часа)"""
     try:
-        user = update.effective_user
-        chat_id = update.effective_chat.id
-        first_name = user.first_name or "друг"
-        
         # Первое напоминание через 30 часов
         await asyncio.sleep(108000)  # 30 часов в секундах
-        await update.get_bot().send_message(
+        await bot.send_message(
             chat_id=chat_id,
             text=f"👋 Привет, {first_name}! Я зарезервировал одно место в VIP, жду ответа 🙏"
         )
         
         # Второе напоминание через 72 часа
         await asyncio.sleep(151200)  # +42 часа = 72 часа от старта
-        await update.get_bot().send_message(
+        await bot.send_message(
             chat_id=chat_id,
             text=f"🤝 Привет, {first_name}! Я все еще держу место для тебя, отпишись как будешь готов 🤝"
         )
@@ -138,7 +134,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
     
     # Запускаем умные напоминания
-    asyncio.create_task(send_reminders(update))
+    asyncio.create_task(send_reminders(update.effective_chat.id, user.first_name, context.bot))
 
 async def show_vip_benefits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
