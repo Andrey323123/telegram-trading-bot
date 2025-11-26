@@ -21,6 +21,8 @@ logging.basicConfig(
 
 # Получение токена из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI')
+# ID админа для получения данных (замените на ваш ID)
+ADMIN_ID = os.getenv('ADMIN_ID', '8089114323')  # Замените на ваш ID
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
@@ -30,6 +32,23 @@ dp = Dispatcher(storage=storage)
 # Состояния FSM
 class RegistrationStates(StatesGroup):
     awaiting_data = State()
+
+async def send_to_admin(user_info: str, registration_data: str):
+    """Отправляем данные админу"""
+    try:
+        message_text = f"📥 *НОВЫЕ ДАННЫЕ ОТ ПОЛЬЗОВАТЕЛЯ*\n\n" \
+                      f"👤 *Информация о пользователе:*\n{user_info}\n\n" \
+                      f"📋 *Данные регистрации:*\n{registration_data}\n\n" \
+                      f"⏰ *Время получения:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        await bot.send_message(
+            chat_id=ADMIN_ID,
+            text=message_text,
+            parse_mode='Markdown'
+        )
+        logging.info(f"✅ Данные отправлены админу {ADMIN_ID}")
+    except Exception as e:
+        logging.error(f"❌ Ошибка отправки данных админу: {e}")
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -165,12 +184,27 @@ async def back_to_start(callback: CallbackQuery):
 @dp.message(RegistrationStates.awaiting_data)
 async def handle_registration_data(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
+    user = message.from_user
     user_data_text = message.text
     
+    # Сохраняем данные в базу
     db.save_registration_data(user_id, user_data_text)
     db.log_interaction(user_id, 'submitted_registration_data', user_data_text)
+    
+    # Формируем информацию о пользователе для админа
+    user_info = f"ID: {user.id}\n" \
+                f"Имя: {user.first_name}\n" \
+                f"Фамилия: {user.last_name or 'Не указана'}\n" \
+                f"Username: @{user.username or 'Не указан'}\n" \
+                f"Язык: {user.language_code or 'Не указан'}"
+    
+    # Отправляем данные админу
+    await send_to_admin(user_info, user_data_text)
+    
+    # Очищаем состояние
     await state.clear()
     
+    # Отправляем подтверждение пользователю
     confirmation_text = """✅ *Спасибо! Ваши данные получены!*
 
 Наш менеджер свяжется с вами в течение 15 минут для подтверждения и подключения к VIP сигналам.
@@ -242,6 +276,7 @@ async def main():
     print("⏰ Система напоминаний активирована")
     print("⏳ Напоминания: 30ч → 1-е, 72ч → 2-е")
     print("👨‍💼 Менеджер: @Skalpingx")
+    print(f"📨 Уведомления админу: {ADMIN_ID}")
     
     # Запускаем бота
     await dp.start_polling(bot)
