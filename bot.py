@@ -365,20 +365,29 @@ async def handle_close_dialog(callback: CallbackQuery):
     await callback.message.answer(f"❌ Диалог с пользователем {user_id} закрыт")
     await callback.answer("Диалог закрыт")
 
-# Команда для завершения диалога
+# Команда для завершения диалога - ДОБАВЛЯЕМ ПЕРЕД ОБРАБОТЧИКОМ СООБЩЕНИЙ
 @dp.message(Command("stop_dialog"))
-async def stop_dialog(message: types.Message, state: FSMContext):
+async def stop_dialog_command(message: types.Message, state: FSMContext):
     """Завершает текущий диалог"""
     if str(message.from_user.id) != ADMIN_ID:
         return
     
     current_state = await state.get_state()
-    if current_state != AdminStates.in_dialog:
+    
+    # Проверяем есть ли активный диалог
+    active_dialog_user_id = None
+    for user_id, admin_id in active_dialogs.items():
+        if str(admin_id) == ADMIN_ID:
+            active_dialog_user_id = user_id
+            break
+    
+    if not active_dialog_user_id and current_state != AdminStates.in_dialog:
         await message.answer("❌ Сейчас нет активного диалога")
         return
     
+    # Получаем ID пользователя из состояния или из активных диалогов
     data = await state.get_data()
-    target_user_id = data.get('target_user_id')
+    target_user_id = data.get('target_user_id') or active_dialog_user_id
     
     if target_user_id and target_user_id in active_dialogs:
         del active_dialogs[target_user_id]
@@ -391,10 +400,10 @@ async def stop_dialog(message: types.Message, state: FSMContext):
             chat_id=target_user_id,
             text="💬 *Диалог с менеджером завершен*\n\nСпасибо за общение! Если у вас остались вопросы, используйте кнопку 'Начать'.",
             parse_mode='Markdown',
-            reply_markup=start_keyboard  # КНОПКА ДОБАВЛЕНА
+            reply_markup=start_keyboard
         )
     except Exception as e:
-        pass
+        logging.error(f"Ошибка уведомления пользователя: {e}")
     
     await message.answer(f"✅ Диалог с пользователем {target_user_id} завершен")
 
@@ -403,6 +412,11 @@ async def stop_dialog(message: types.Message, state: FSMContext):
 async def handle_admin_dialog_message(message: types.Message, state: FSMContext):
     """Обрабатывает сообщения админа в режиме диалога"""
     if str(message.from_user.id) != ADMIN_ID:
+        return
+    
+    # Если админ отправил команду /stop_dialog во время диалога
+    if message.text == "/stop_dialog":
+        await stop_dialog_command(message, state)
         return
     
     data = await state.get_data()
