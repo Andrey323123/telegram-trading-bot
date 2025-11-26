@@ -32,6 +32,9 @@ dp = Dispatcher(storage=storage)
 class RegistrationStates(StatesGroup):
     awaiting_data = State()
 
+class AdminStates(StatesGroup):
+    awaiting_reply = State()
+
 # Создаем Reply-клавиатуру с кнопкой "Начать" (всегда внизу)
 start_keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -50,8 +53,8 @@ def escape_markdown(text: str) -> str:
         text = text.replace(char, f'\\{char}')
     return text
 
-async def send_to_admin(user_info: str, registration_data: str):
-    """Отправляем данные админу"""
+async def send_to_admin(user_info: str, registration_data: str, user_id: int):
+    """Отправляем данные админу с кнопкой ответа"""
     try:
         # Экранируем все текстовые данные
         user_info_escaped = escape_markdown(user_info)
@@ -62,12 +65,18 @@ async def send_to_admin(user_info: str, registration_data: str):
                       f"📋 *Данные регистрации:*\n{registration_data_escaped}\n\n" \
                       f"⏰ *Время получения:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
+        # Клавиатура с кнопкой "Ответить"
+        reply_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💬 Ответить пользователю", callback_data=f"reply_to_{user_id}")]
+        ])
+        
         await bot.send_message(
             chat_id=ADMIN_ID,
             text=message_text,
+            reply_markup=reply_keyboard,
             parse_mode='MarkdownV2'
         )
-        logging.info(f"✅ Данные отправлены админу {ADMIN_ID}")
+        logging.info(f"✅ Данные отправлены админу {ADMIN_ID} с кнопкой ответа")
     except Exception as e:
         logging.error(f"❌ Ошибка отправки данных админу: {e}")
         # Пробуем отправить без Markdown
@@ -77,9 +86,14 @@ async def send_to_admin(user_info: str, registration_data: str):
                         f"📋 Данные регистрации:\n{registration_data}\n\n" \
                         f"⏰ Время получения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             
+            reply_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💬 Ответить пользователю", callback_data=f"reply_to_{user_id}")]
+            ])
+            
             await bot.send_message(
                 chat_id=ADMIN_ID,
-                text=plain_text
+                text=plain_text,
+                reply_markup=reply_keyboard
             )
             logging.info(f"✅ Данные отправлены админу {ADMIN_ID} (без Markdown)")
         except Exception as e2:
@@ -274,8 +288,8 @@ async def handle_registration_data(message: types.Message, state: FSMContext):
                 f"Username: @{user.username or 'Не указан'}\n" \
                 f"Язык: {user.language_code or 'Не указан'}"
     
-    # Отправляем данные админу
-    await send_to_admin(user_info, user_data_text)
+    # Отправляем данные админу С КНОПКОЙ ОТВЕТА
+    await send_to_admin(user_info, user_data_text, user_id)
     
     # Очищаем состояние
     await state.clear()
@@ -290,6 +304,58 @@ async def handle_registration_data(message: types.Message, state: FSMContext):
 Мы зарезервировали для вас место на 24 часа! 🎉"""
     
     await message.answer(confirmation_text, parse_mode='Markdown')
+
+# Обработка кнопки "Ответить" от админа
+@dp.callback_query(F.data.startswith("reply_to_"))
+async def handle_admin_reply(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает нажатие кнопки 'Ответить' админом"""
+    if str(callback.from_user.id) != ADMIN_ID:
+        await callback.answer("❌ У вас нет прав для этого действия", show_alert=True)
+        return
+    
+    user_id = int(callback.data.replace("reply_to_", ""))
+    
+    # Сохраняем ID пользователя для ответа
+    await state.update_data(target_user_id=user_id)
+    await state.set_state(AdminStates.awaiting_reply)
+    
+    await callback.message.answer(
+        f"💬 Введите сообщение для пользователя {user_id}:\n"
+        f"(Сообщение будет отправлено от имени бота)"
+    )
+    await callback.answer()
+
+# Обработка ответа админа
+@dp.message(AdminStates.awaiting_reply)
+async def handle_admin_message(message: types.Message, state: FSMContext):
+    """Обрабатывает сообщение админа для отправки пользователю"""
+    if str(message.from_user.id) != ADMIN_ID:
+        await message.answer("❌ У вас нет прав для этого действия")
+        return
+    
+    data = await state.get_data()
+    target_user_id = data.get('target_user_id')
+    
+    if not target_user_id:
+        await message.answer("❌ Ошибка: не найден пользователь для ответа")
+        await state.clear()
+        return
+    
+    try:
+        # Отправляем сообщение пользователю от имени бота
+        await bot.send_message(
+            chat_id=target_user_id,
+            text=message.text
+        )
+        
+        await message.answer(f"✅ Сообщение отправлено пользователю {target_user_id}")
+        logging.info(f"📨 Админ отправил сообщение пользователю {target_user_id}: {message.text}")
+        
+    except Exception as e:
+        await message.answer(f"❌ Ошибка отправки сообщения: {e}")
+        logging.error(f"Ошибка отправки сообщения от админа: {e}")
+    
+    await state.clear()
 
 @dp.message()
 async def handle_other_messages(message: types.Message):
@@ -356,6 +422,7 @@ async def main():
     print("👨‍💼 Менеджер: https://t.me/m/XCFTGFzeNzVi")
     print(f"📨 Уведомления админу: {ADMIN_ID}")
     print("🔄 Кнопка 'Начать' всегда доступна внизу экрана")
+    print("💬 Функция ответа админа активирована")
     
     # Запускаем бота
     await dp.start_polling(bot)
