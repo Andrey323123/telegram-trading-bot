@@ -6,7 +6,7 @@ from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -44,7 +44,8 @@ start_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="🚀 Начать")]
     ],
     resize_keyboard=True,
-    one_time_keyboard=False  # Клавиатура всегда видна
+    is_persistent=True,  # Клавиатура всегда видна
+    one_time_keyboard=False  # Не скрывается после нажатия
 )
 
 def escape_markdown(text: str) -> str:
@@ -132,6 +133,11 @@ https://nmofficialru.com/o2o7sqk1265d
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    # Сразу показываем кнопку "Начать"
+    await message.answer(
+        "👋 Добро пожаловать! Используйте кнопку ниже для навигации:",
+        reply_markup=start_keyboard
+    )
     await process_start(message)
 
 @dp.message(F.text == "🚀 Начать")
@@ -274,6 +280,11 @@ async def show_completed_registration(callback: CallbackQuery, state: FSMContext
 
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start(callback: CallbackQuery):
+    # При возврате к старту показываем кнопку "Начать"
+    await callback.message.answer(
+        "👋 Возвращаемся в главное меню:",
+        reply_markup=start_keyboard
+    )
     await cmd_start(callback.message)
 
 @dp.message(RegistrationStates.awaiting_data)
@@ -365,7 +376,7 @@ async def handle_close_dialog(callback: CallbackQuery):
     await callback.message.answer(f"❌ Диалог с пользователем {user_id} закрыт")
     await callback.answer("Диалог закрыт")
 
-# Команда для завершения диалога - ДОБАВЛЯЕМ ПЕРЕД ОБРАБОТЧИКОМ СООБЩЕНИЙ
+# Команда для завершения диалога
 @dp.message(Command("stop_dialog"))
 async def stop_dialog_command(message: types.Message, state: FSMContext):
     """Завершает текущий диалог"""
@@ -496,7 +507,7 @@ async def check_reminders():
                     else:
                         continue
                     
-                    await bot.send_message(chat_id=user_id, text=message_text)
+                    await bot.send_message(chat_id=user_id, text=message_text, reply_markup=start_keyboard)
                     db.mark_reminder_sent(reminder['id'])
                     db.log_interaction(user_id, f"reminder_sent_{reminder_type}")
                     
