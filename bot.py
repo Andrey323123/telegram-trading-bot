@@ -140,8 +140,6 @@ async def process_start(message: types.Message):
     # Если пользователь не новый ИЛИ у него больше 1 взаимодействия, показываем VIP сразу
     if not is_new_user or interaction_count > 1:
         await show_vip_benefits_from_start(message)
-        # Всегда показываем кнопку "Начать" после ответа
-        await message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
         return
     
     # Для новых пользователей - стандартное приветствие
@@ -155,8 +153,6 @@ async def process_start(message: types.Message):
     ])
     
     await message.answer(welcome_text, reply_markup=keyboard)
-    # Показываем кнопку "Начать" после приветствия
-    await message.answer("Используйте кнопку 'Начать' для быстрого доступа к меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "vip_benefits")
 async def show_vip_benefits(callback: CallbackQuery):
@@ -187,8 +183,6 @@ https://nmofficialru.com/o2o7sqk1265d
     ])
     
     await callback.message.edit_text(vip_text, reply_markup=keyboard, parse_mode='Markdown')
-    # После редактирования сообщения отправляем кнопку "Начать"
-    await callback.message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "has_broker")
 async def show_has_broker_options(callback: CallbackQuery):
@@ -213,7 +207,6 @@ async def show_has_broker_options(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text(broker_text, reply_markup=keyboard, parse_mode='Markdown')
-    await callback.message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "make_payment")
 async def show_payment_instructions(callback: CallbackQuery):
@@ -223,7 +216,7 @@ async def show_payment_instructions(callback: CallbackQuery):
     payment_text = """💳 *Для оформления оплаты:*
 
 Напишите мне в личные сообщения:
-👉 @Skalpingx
+👉 https://t.me/m/XCFTGFzeNzVi
 
 *Укажите в сообщении:*
 - Выбранный тариф (1 месяц, 3 месяца, год или план на всю жизнь)
@@ -231,12 +224,11 @@ async def show_payment_instructions(callback: CallbackQuery):
 Я отвечу в течение 5-10 минут с реквизитами для оплаты и инструкциями!"""
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📞 Написать менеджеру", url="https://t.me/Skalpingx")],
+        [InlineKeyboardButton(text="📞 Написать менеджеру", url="https://t.me/m/XCFTGFzeNzVi")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="has_broker")]
     ])
     
     await callback.message.edit_text(payment_text, reply_markup=keyboard, parse_mode='Markdown')
-    await callback.message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "completed_registration")
 async def show_completed_registration(callback: CallbackQuery, state: FSMContext):
@@ -260,7 +252,6 @@ async def show_completed_registration(callback: CallbackQuery, state: FSMContext
     await callback.message.answer(reservation_text)
     
     await state.set_state(RegistrationStates.awaiting_data)
-    await callback.message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start(callback: CallbackQuery):
@@ -299,7 +290,6 @@ async def handle_registration_data(message: types.Message, state: FSMContext):
 Мы зарезервировали для вас место на 24 часа! 🎉"""
     
     await message.answer(confirmation_text, parse_mode='Markdown')
-    await message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.message()
 async def handle_other_messages(message: types.Message):
@@ -309,7 +299,7 @@ async def handle_other_messages(message: types.Message):
     # Если это не кнопка "Начать", логируем и отвечаем
     if message.text != "🚀 Начать":
         db.log_interaction(user_id, 'sent_message', user_data_text)
-        response_text = "🤖 Я бот для подключения к VIP сигналам по золоту.\n\nИспользуйте кнопку 'Начать' для навигации или напишите @Skalpingx для связи с менеджером."
+        response_text = "🤖 Я бот для подключения к VIP сигналам по золоту.\n\nИспользуйте кнопку 'Начать' для навигации или напишите https://t.me/m/XCFTGFzeNzVi для связи с менеджером."
         await message.answer(response_text, reply_markup=start_keyboard)
 
 # Фоновая задача для напоминаний
@@ -363,7 +353,7 @@ async def main():
     print("🔍 Найдите бота в Telegram и отправьте /start или нажмите кнопку 'Начать'")
     print("⏰ Система напоминаний активирована")
     print("⏳ Напоминания: 30ч → 1-е, 72ч → 2-е")
-    print("👨‍💼 Менеджер: @Skalpingx")
+    print("👨‍💼 Менеджер: https://t.me/m/XCFTGFzeNzVi")
     print(f"📨 Уведомления админу: {ADMIN_ID}")
     print("🔄 Кнопка 'Начать' всегда доступна внизу экрана")
     
