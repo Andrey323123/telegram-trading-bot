@@ -6,7 +6,7 @@ from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -31,6 +31,15 @@ dp = Dispatcher(storage=storage)
 # Состояния FSM
 class RegistrationStates(StatesGroup):
     awaiting_data = State()
+
+# Создаем Reply-клавиатуру с кнопкой "Начать" (всегда внизу)
+start_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🚀 Начать")]
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=False  # Клавиатура всегда видна
+)
 
 def escape_markdown(text: str) -> str:
     """Экранирует спецсимволы Markdown"""
@@ -104,6 +113,15 @@ https://nmofficialru.com/o2o7sqk1265d
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    await process_start(message)
+
+@dp.message(F.text == "🚀 Начать")
+async def handle_start_button(message: types.Message):
+    """Обрабатывает нажатие кнопки 'Начать'"""
+    await process_start(message)
+
+async def process_start(message: types.Message):
+    """Основная логика обработки старта"""
     user = message.from_user
     user_data = {
         'user_id': user.id,
@@ -122,6 +140,8 @@ async def cmd_start(message: types.Message):
     # Если пользователь не новый ИЛИ у него больше 1 взаимодействия, показываем VIP сразу
     if not is_new_user or interaction_count > 1:
         await show_vip_benefits_from_start(message)
+        # Всегда показываем кнопку "Начать" после ответа
+        await message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
         return
     
     # Для новых пользователей - стандартное приветствие
@@ -135,6 +155,8 @@ async def cmd_start(message: types.Message):
     ])
     
     await message.answer(welcome_text, reply_markup=keyboard)
+    # Показываем кнопку "Начать" после приветствия
+    await message.answer("Используйте кнопку 'Начать' для быстрого доступа к меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "vip_benefits")
 async def show_vip_benefits(callback: CallbackQuery):
@@ -165,6 +187,8 @@ https://nmofficialru.com/o2o7sqk1265d
     ])
     
     await callback.message.edit_text(vip_text, reply_markup=keyboard, parse_mode='Markdown')
+    # После редактирования сообщения отправляем кнопку "Начать"
+    await callback.message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "has_broker")
 async def show_has_broker_options(callback: CallbackQuery):
@@ -189,6 +213,7 @@ async def show_has_broker_options(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text(broker_text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback.message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "make_payment")
 async def show_payment_instructions(callback: CallbackQuery):
@@ -211,6 +236,7 @@ async def show_payment_instructions(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text(payment_text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback.message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "completed_registration")
 async def show_completed_registration(callback: CallbackQuery, state: FSMContext):
@@ -234,6 +260,7 @@ async def show_completed_registration(callback: CallbackQuery, state: FSMContext
     await callback.message.answer(reservation_text)
     
     await state.set_state(RegistrationStates.awaiting_data)
+    await callback.message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start(callback: CallbackQuery):
@@ -272,15 +299,18 @@ async def handle_registration_data(message: types.Message, state: FSMContext):
 Мы зарезервировали для вас место на 24 часа! 🎉"""
     
     await message.answer(confirmation_text, parse_mode='Markdown')
+    await message.answer("Нажмите кнопку ниже для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.message()
 async def handle_other_messages(message: types.Message):
     user_id = message.from_user.id
     user_data_text = message.text
     
-    db.log_interaction(user_id, 'sent_message', user_data_text)
-    response_text = "🤖 Я бот для подключения к VIP сигналам по золоту.\n\nИспользуйте кнопки меню для навигации или напишите @Skalpingx для связи с менеджером."
-    await message.answer(response_text)
+    # Если это не кнопка "Начать", логируем и отвечаем
+    if message.text != "🚀 Начать":
+        db.log_interaction(user_id, 'sent_message', user_data_text)
+        response_text = "🤖 Я бот для подключения к VIP сигналам по золоту.\n\nИспользуйте кнопку 'Начать' для навигации или напишите @Skalpingx для связи с менеджером."
+        await message.answer(response_text, reply_markup=start_keyboard)
 
 # Фоновая задача для напоминаний
 async def check_reminders():
@@ -330,12 +360,12 @@ async def main():
     asyncio.create_task(check_reminders())
     
     print("🟢 Бот запущен и готов к работе!")
-    print("🔍 Найдите бота в Telegram и отправьте /start")
+    print("🔍 Найдите бота в Telegram и отправьте /start или нажмите кнопку 'Начать'")
     print("⏰ Система напоминаний активирована")
     print("⏳ Напоминания: 30ч → 1-е, 72ч → 2-е")
     print("👨‍💼 Менеджер: @Skalpingx")
     print(f"📨 Уведомления админу: {ADMIN_ID}")
-    print("🔄 Авто-старт для возвращающихся пользователей активирован")
+    print("🔄 Кнопка 'Начать' всегда доступна внизу экрана")
     
     # Запускаем бота
     await dp.start_polling(bot)
