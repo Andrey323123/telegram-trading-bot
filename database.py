@@ -3,203 +3,194 @@ import sqlite3
 import logging
 from datetime import datetime, timedelta
 import os
-from contextlib import contextmanager
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class Database:
-    def __init__(self):
-        self.db_path = os.getenv('DB_PATH', 'sales_bot.db')
+    def __init__(self, db_path='bot_database.db'):
+        self.db_path = db_path
+        self.conn = None
+        self.connect()
     
-    @contextmanager
-    def get_connection(self):
-        connection = None
+    def connect(self):
+        """Подключаемся к базе данных"""
         try:
-            connection = sqlite3.connect(self.db_path)
-            connection.row_factory = sqlite3.Row
-            yield connection
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
+            logger.info("✅ Подключение к SQLite установлено")
         except Exception as e:
-            logging.error(f"Ошибка подключения к SQLite: {e}")
-            raise
-        finally:
-            if connection:
-                connection.close()
+            logger.error(f"❌ Ошибка подключения к SQLite: {e}")
     
     def create_tables(self):
+        """Создаем таблицы если их нет"""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER UNIQUE NOT NULL,
-                        username TEXT,
-                        first_name TEXT,
-                        last_name TEXT,
-                        phone TEXT,
-                        email TEXT,
-                        status TEXT DEFAULT 'new',
-                        registration_data TEXT,
-                        last_reminder DATETIME,
-                        reminders_sent INTEGER DEFAULT 0,
-                        source TEXT DEFAULT 'start_command',
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS interactions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        action TEXT NOT NULL,
-                        details TEXT,
-                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS purchases (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        product_name TEXT NOT NULL,
-                        amount REAL,
-                        status TEXT DEFAULT 'pending',
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS reminders (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        reminder_type TEXT NOT NULL,
-                        scheduled_at DATETIME NOT NULL,
-                        sent BOOLEAN DEFAULT FALSE,
-                        sent_at DATETIME,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-                    )
-                """)
-                
-                conn.commit()
-                logging.info("✅ SQLite таблицы созданы/проверены")
-                
+            cursor = self.conn.cursor()
+            
+            # Таблица пользователей
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    username TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    source TEXT,
+                    registration_data TEXT,
+                    registration_date TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Таблица взаимодействий
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS interactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    data TEXT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Таблица напоминаний
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    reminder_type TEXT NOT NULL,
+                    scheduled_time TEXT NOT NULL,
+                    sent BOOLEAN DEFAULT FALSE,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            self.conn.commit()
+            logger.info("✅ SQLite таблицы созданы/проверены")
+            
         except Exception as e:
-            logging.error(f"Ошибка создания таблиц: {e}")
+            logger.error(f"❌ Ошибка создания таблиц: {e}")
     
     def add_user(self, user_data):
+        """Добавляем пользователя"""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT OR IGNORE INTO users 
+                (user_id, username, first_name, last_name, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                user_data['user_id'],
+                user_data.get('username'),
+                user_data.get('first_name'),
+                user_data.get('last_name'),
+                user_data.get('source', 'start_command'),
+                datetime.now().isoformat()
+            ))
+            
+            is_new = cursor.rowcount > 0
+            self.conn.commit()
+            
+            if is_new:
+                logger.info(f"✅ Добавлен новый пользователь: {user_data['user_id']}")
+            else:
+                logger.info(f"ℹ️ Пользователь уже существует: {user_data['user_id']}")
                 
-                query = """
-                    INSERT INTO users (user_id, username, first_name, last_name, status, source)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(user_id) DO UPDATE SET
-                    username = excluded.username,
-                    first_name = excluded.first_name,
-                    last_name = excluded.last_name,
-                    updated_at = CURRENT_TIMESTAMP
-                """
-                
-                cursor.execute(query, (
-                    user_data['user_id'],
-                    user_data['username'],
-                    user_data['first_name'],
-                    user_data['last_name'],
-                    'new',
-                    user_data.get('source', 'start_command')
-                ))
-                
-                conn.commit()
-                return cursor.lastrowid
-                
+            return is_new
+            
         except Exception as e:
-            logging.error(f"Ошибка добавления пользователя: {e}")
-            return None
+            logger.error(f"❌ Ошибка добавления пользователя: {e}")
+            return False
     
-    def log_interaction(self, user_id, action, details=None):
+    def log_interaction(self, user_id, action, data=None):
+        """Логируем взаимодействие"""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                query = "INSERT INTO interactions (user_id, action, details) VALUES (?, ?, ?)"
-                cursor.execute(query, (user_id, action, details))
-                conn.commit()
-                
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT INTO interactions (user_id, action, data, timestamp)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, action, data, datetime.now().isoformat()))
+            self.conn.commit()
         except Exception as e:
-            logging.error(f"Ошибка логирования взаимодействия: {e}")
+            logger.error(f"❌ Ошибка логирования взаимодействия: {e}")
     
-    def update_user_status(self, user_id, status):
+    def save_registration_data(self, user_id, data):
+        """Сохраняем данные регистрации"""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                query = "UPDATE users SET status = ? WHERE user_id = ?"
-                cursor.execute(query, (status, user_id))
-                conn.commit()
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                UPDATE users 
+                SET registration_data = ?, registration_date = ?
+                WHERE user_id = ?
+            ''', (data, datetime.now().isoformat(), user_id))
+            self.conn.commit()
+            logger.info(f"💾 Сохранены данные регистрации для: {user_id}")
         except Exception as e:
-            logging.error(f"Ошибка обновления статуса: {e}")
+            logger.error(f"❌ Ошибка сохранения данных регистрации: {e}")
     
-    def save_registration_data(self, user_id, registration_data):
+    def schedule_reminder(self, user_id, reminder_type, hours_later):
+        """Планируем напоминание"""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                query = "UPDATE users SET registration_data = ?, status = 'waiting_verification' WHERE user_id = ?"
-                cursor.execute(query, (registration_data, user_id))
-                conn.commit()
+            scheduled_time = datetime.now() + timedelta(hours=hours_later)
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                INSERT INTO reminders (user_id, reminder_type, scheduled_time)
+                VALUES (?, ?, ?)
+            ''', (user_id, reminder_type, scheduled_time.isoformat()))
+            self.conn.commit()
+            logger.info(f"⏰ Запланировано напоминание {reminder_type} для {user_id}")
         except Exception as e:
-            logging.error(f"Ошибка сохранения данных регистрации: {e}")
-    
-    def get_user(self, user_id):
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                query = "SELECT * FROM users WHERE user_id = ?"
-                cursor.execute(query, (user_id,))
-                row = cursor.fetchone()
-                return dict(row) if row else None
-        except Exception as e:
-            logging.error(f"Ошибка получения пользователя: {e}")
-            return None
-    
-    def schedule_reminder(self, user_id, reminder_type, hours_from_now):
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                scheduled_at = datetime.now() + timedelta(hours=hours_from_now)
-                query = "INSERT INTO reminders (user_id, reminder_type, scheduled_at) VALUES (?, ?, ?)"
-                cursor.execute(query, (user_id, reminder_type, scheduled_at))
-                conn.commit()
-        except Exception as e:
-            logging.error(f"Ошибка планирования напоминания: {e}")
+            logger.error(f"❌ Ошибка планирования напоминания: {e}")
     
     def get_pending_reminders(self):
+        """Получаем ожидающие напоминания"""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                query = """
-                    SELECT r.*, u.first_name, u.username 
-                    FROM reminders r 
-                    JOIN users u ON r.user_id = u.user_id 
-                    WHERE r.sent = 0 AND r.scheduled_at <= datetime('now')
-                """
-                cursor.execute(query)
-                return [dict(row) for row in cursor.fetchall()]
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT r.*, u.first_name 
+                FROM reminders r
+                JOIN users u ON r.user_id = u.user_id
+                WHERE r.sent = FALSE AND r.scheduled_time <= ?
+            ''', (datetime.now().isoformat(),))
+            return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
-            logging.error(f"Ошибка получения напоминаний: {e}")
+            logger.error(f"❌ Ошибка получения напоминаний: {e}")
             return []
     
     def mark_reminder_sent(self, reminder_id):
+        """Отмечаем напоминание как отправленное"""
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                query = "UPDATE reminders SET sent = 1, sent_at = datetime('now') WHERE id = ?"
-                cursor.execute(query, (reminder_id,))
-                conn.commit()
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                UPDATE reminders SET sent = TRUE WHERE id = ?
+            ''', (reminder_id,))
+            self.conn.commit()
         except Exception as e:
-            logging.error(f"Ошибка отметки напоминания: {e}")
+            logger.error(f"❌ Ошибка отметки напоминания: {e}")
+    
+    def get_user_interactions_count(self, user_id):
+        """Получаем количество взаимодействий пользователя"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT COUNT(*) FROM interactions 
+                WHERE user_id = ?
+            ''', (user_id,))
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения количества взаимодействий: {e}")
+            return 0
+    
+    def check_user_exists(self, user_id):
+        """Проверяет существование пользователя"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('SELECT 1 FROM users WHERE user_id = ?', (user_id,))
+            return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки пользователя: {e}")
+            return False
 
-# Глобальный экземпляр базы данных
+# Создаем глобальный экземпляр базы данных
 db = Database()
