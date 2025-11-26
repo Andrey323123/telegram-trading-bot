@@ -2,7 +2,7 @@
 import logging
 import asyncio
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -21,7 +21,6 @@ logging.basicConfig(
 
 # Получение токена из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI')
-# ID админа для получения данных
 ADMIN_ID = os.getenv('ADMIN_ID', '5067425279')
 
 # Инициализация бота и диспетчера
@@ -77,6 +76,32 @@ async def send_to_admin(user_info: str, registration_data: str):
         except Exception as e2:
             logging.error(f"❌ Ошибка отправки данных админу даже без Markdown: {e2}")
 
+async def show_vip_benefits_from_start(message: types.Message):
+    """Показывает VIP преимущества сразу (для возвращающихся пользователей)"""
+    vip_text = """🎯 *Преимущества VIP:*
+
+⭐ *Копирование сделок по золоту*: получайте от 3 до 7 ежедневных выигрышных сигналов по золоту
+
+⭐ *Методы торговли* - Внедрение наших секретных методов торговли в вашу игру🤫
+
+⭐ *Поддержка 1:1*: наслаждайтесь персонализированной поддержкой
+
+———————————————————
+
+💎 *Зарегистрируйте торговый счет, чтобы присоединиться к VIP прямо сейчас‼*           
+
+https://nmofficialru.com/o2o7sqk1265d                         
+———————————————————
+
+💰 *Сделайте пополнение счета минимум от 400$*"""
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1️⃣ У меня есть брокер", callback_data="has_broker")],
+        [InlineKeyboardButton(text="2️⃣ Я сделал регистрацию", callback_data="completed_registration")]
+    ])
+    
+    await message.answer(vip_text, reply_markup=keyboard, parse_mode='Markdown')
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     user = message.from_user
@@ -87,10 +112,19 @@ async def cmd_start(message: types.Message):
         'last_name': user.last_name,
         'source': 'start_command'
     }
-    db.add_user(user_data)
+    
+    # Проверяем, новый ли пользователь и считаем взаимодействия
+    is_new_user = db.add_user(user_data)
+    interaction_count = db.get_user_interactions_count(user.id)
+    
     db.log_interaction(user.id, 'start_command')
     
-    # Планируем напоминания
+    # Если пользователь не новый ИЛИ у него больше 1 взаимодействия, показываем VIP сразу
+    if not is_new_user or interaction_count > 1:
+        await show_vip_benefits_from_start(message)
+        return
+    
+    # Для новых пользователей - стандартное приветствие
     db.schedule_reminder(user.id, "30_hours", 30)
     db.schedule_reminder(user.id, "72_hours", 72)
     
@@ -125,8 +159,8 @@ https://nmofficialru.com/o2o7sqk1265d
 💰 *Сделайте пополнение счета минимум от 400$*"""
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1️⃣ У меня есть брокер и я не хочу его менять", callback_data="has_broker")],
-        [InlineKeyboardButton(text="2️⃣ Я сделал регистрацию Готово✅", callback_data="completed_registration")],
+        [InlineKeyboardButton(text="1️⃣ У меня есть брокер", callback_data="has_broker")],
+        [InlineKeyboardButton(text="2️⃣ Я сделал регистрацию", callback_data="completed_registration")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_start")]
     ])
     
@@ -150,8 +184,8 @@ async def show_has_broker_options(callback: CallbackQuery):
 🎉🎁План на всю жизнь 1000$"""
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Хочу сделать оплату ✅", callback_data="make_payment")],
-        [InlineKeyboardButton(text="⬅️ Назад к преимуществам", callback_data="vip_benefits")]
+        [InlineKeyboardButton(text="💳 Хочу сделать оплату", callback_data="make_payment")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="vip_benefits")]
     ])
     
     await callback.message.edit_text(broker_text, reply_markup=keyboard, parse_mode='Markdown')
@@ -159,10 +193,9 @@ async def show_has_broker_options(callback: CallbackQuery):
 @dp.callback_query(F.data == "make_payment")
 async def show_payment_instructions(callback: CallbackQuery):
     user_id = callback.from_user.id
-    user = callback.from_user
     db.log_interaction(user_id, 'clicked_make_payment')
     
-    payment_text = f"""💳 *Для оформления оплаты:*
+    payment_text = """💳 *Для оформления оплаты:*
 
 Напишите мне в личные сообщения:
 👉 @Skalpingx
@@ -174,7 +207,7 @@ async def show_payment_instructions(callback: CallbackQuery):
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📞 Написать менеджеру", url="https://t.me/Skalpingx")],
-        [InlineKeyboardButton(text="⬅️ Назад к тарифам", callback_data="has_broker")]
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="has_broker")]
     ])
     
     await callback.message.edit_text(payment_text, reply_markup=keyboard, parse_mode='Markdown')
@@ -192,12 +225,11 @@ async def show_completed_registration(callback: CallbackQuery, state: FSMContext
 ✅Размер капитала"""
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Назад к преимуществам", callback_data="vip_benefits")]
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="vip_benefits")]
     ])
     
     await callback.message.edit_text(registration_text, reply_markup=keyboard)
     
-    # Второе сообщение с информацией о резервировании места
     reservation_text = f"Привет, {user.first_name}, просто хочу сообщить тебе, что я зарезервирую для тебя бесплатное место на ближайшие 24 часа!"
     await callback.message.answer(reservation_text)
     
@@ -205,7 +237,6 @@ async def show_completed_registration(callback: CallbackQuery, state: FSMContext
 
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start(callback: CallbackQuery):
-    # Для callback query нужно использовать answer, а не отправлять новое сообщение
     await cmd_start(callback.message)
 
 @dp.message(RegistrationStates.awaiting_data)
@@ -276,11 +307,11 @@ async def check_reminders():
                     logging.info(f"Отправлено напоминание {reminder_type} пользователю {user_id}")
                     
                 except Exception as e:
-                    logging.error(f"Ошибка отправки напоминания {reminder['id']}: {e}")
+                    logging.error(f"Ошибка отправки напоминания: {e}")
         except Exception as e:
             logging.error(f"Ошибка в обработчике напоминаний: {e}")
         
-        await asyncio.sleep(60)  # Проверяем каждую минуту
+        await asyncio.sleep(60)
 
 async def main():
     # Проверяем токен бота
@@ -304,6 +335,7 @@ async def main():
     print("⏳ Напоминания: 30ч → 1-е, 72ч → 2-е")
     print("👨‍💼 Менеджер: @Skalpingx")
     print(f"📨 Уведомления админу: {ADMIN_ID}")
+    print("🔄 Авто-старт для возвращающихся пользователей активирован")
     
     # Запускаем бота
     await dp.start_polling(bot)
