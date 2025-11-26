@@ -33,7 +33,10 @@ class RegistrationStates(StatesGroup):
     awaiting_data = State()
 
 class AdminStates(StatesGroup):
-    awaiting_reply = State()
+    in_dialog = State()
+
+# Хранилище активных диалогов {user_id: admin_id}
+active_dialogs = {}
 
 # Создаем Reply-клавиатуру с кнопкой "Начать" (всегда внизу)
 start_keyboard = ReplyKeyboardMarkup(
@@ -67,7 +70,8 @@ async def send_to_admin(user_info: str, registration_data: str, user_id: int):
         
         # Клавиатура с кнопкой "Ответить"
         reply_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💬 Ответить пользователю", callback_data=f"reply_to_{user_id}")]
+            [InlineKeyboardButton(text="💬 Начать диалог", callback_data=f"start_dialog_{user_id}")],
+            [InlineKeyboardButton(text="❌ Закрыть", callback_data=f"close_dialog_{user_id}")]
         ])
         
         await bot.send_message(
@@ -76,7 +80,7 @@ async def send_to_admin(user_info: str, registration_data: str, user_id: int):
             reply_markup=reply_keyboard,
             parse_mode='MarkdownV2'
         )
-        logging.info(f"✅ Данные отправлены админу {ADMIN_ID} с кнопкой ответа")
+        logging.info(f"✅ Данные отправлены админу {ADMIN_ID} с кнопкой диалога")
     except Exception as e:
         logging.error(f"❌ Ошибка отправки данных админу: {e}")
         # Пробуем отправить без Markdown
@@ -87,7 +91,8 @@ async def send_to_admin(user_info: str, registration_data: str, user_id: int):
                         f"⏰ Время получения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             
             reply_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💬 Ответить пользователю", callback_data=f"reply_to_{user_id}")]
+                [InlineKeyboardButton(text="💬 Начать диалог", callback_data=f"start_dialog_{user_id}")],
+                [InlineKeyboardButton(text="❌ Закрыть", callback_data=f"close_dialog_{user_id}")]
             ])
             
             await bot.send_message(
@@ -288,7 +293,7 @@ async def handle_registration_data(message: types.Message, state: FSMContext):
                 f"Username: @{user.username or 'Не указан'}\n" \
                 f"Язык: {user.language_code or 'Не указан'}"
     
-    # Отправляем данные админу С КНОПКОЙ ОТВЕТА
+    # Отправляем данные админу С КНОПКОЙ ДИАЛОГА
     await send_to_admin(user_info, user_data_text, user_id)
     
     # Очищаем состояние
@@ -305,40 +310,105 @@ async def handle_registration_data(message: types.Message, state: FSMContext):
     
     await message.answer(confirmation_text, parse_mode='Markdown')
 
-# Обработка кнопки "Ответить" от админа
-@dp.callback_query(F.data.startswith("reply_to_"))
-async def handle_admin_reply(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает нажатие кнопки 'Ответить' админом"""
+# Обработка кнопки "Начать диалог" от админа
+@dp.callback_query(F.data.startswith("start_dialog_"))
+async def handle_start_dialog(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает нажатие кнопки 'Начать диалог' админом"""
     if str(callback.from_user.id) != ADMIN_ID:
         await callback.answer("❌ У вас нет прав для этого действия", show_alert=True)
         return
     
-    user_id = int(callback.data.replace("reply_to_", ""))
+    user_id = int(callback.data.replace("start_dialog_", ""))
     
-    # Сохраняем ID пользователя для ответа
+    # Начинаем диалог
+    active_dialogs[user_id] = ADMIN_ID
+    await state.set_state(AdminStates.in_dialog)
     await state.update_data(target_user_id=user_id)
-    await state.set_state(AdminStates.awaiting_reply)
     
+    # Уведомляем админа
+    await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
-        f"💬 Введите сообщение для пользователя {user_id}:\n"
-        f"(Сообщение будет отправлено от имени бота)"
+        f"💬 *Диалог начат с пользователем {user_id}*\n\n"
+        f"Теперь все ваши сообщения будут отправляться этому пользователю от имени бота.\n"
+        f"И все сообщения от пользователя будут приходить вам.\n\n"
+        f"Используйте команду /stop_dialog чтобы завершить диалог.",
+        parse_mode='Markdown'
     )
-    await callback.answer()
+    
+    # Уведомляем пользователя
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text="💬 *Менеджер подключился к чату*\n\nТеперь вы можете общаться напрямую!",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        await callback.message.answer(f"❌ Не удалось уведомить пользователя: {e}")
+    
+    await callback.answer("Диалог начат!")
 
-# Обработка ответа админа
-@dp.message(AdminStates.awaiting_reply)
-async def handle_admin_message(message: types.Message, state: FSMContext):
-    """Обрабатывает сообщение админа для отправки пользователю"""
+# Обработка кнопки "Закрыть" от админа
+@dp.callback_query(F.data.startswith("close_dialog_"))
+async def handle_close_dialog(callback: CallbackQuery):
+    """Обрабатывает нажатие кнопки 'Закрыть' админом"""
+    if str(callback.from_user.id) != ADMIN_ID:
+        await callback.answer("❌ У вас нет прав для этого действия", show_alert=True)
+        return
+    
+    user_id = int(callback.data.replace("close_dialog_", ""))
+    
+    # Закрываем диалог
+    if user_id in active_dialogs:
+        del active_dialogs[user_id]
+    
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(f"❌ Диалог с пользователем {user_id} закрыт")
+    await callback.answer("Диалог закрыт")
+
+# Команда для завершения диалога
+@dp.message(Command("stop_dialog"))
+async def stop_dialog(message: types.Message, state: FSMContext):
+    """Завершает текущий диалог"""
     if str(message.from_user.id) != ADMIN_ID:
-        await message.answer("❌ У вас нет прав для этого действия")
+        return
+    
+    current_state = await state.get_state()
+    if current_state != AdminStates.in_dialog:
+        await message.answer("❌ Сейчас нет активного диалога")
         return
     
     data = await state.get_data()
     target_user_id = data.get('target_user_id')
     
-    if not target_user_id:
-        await message.answer("❌ Ошибка: не найден пользователь для ответа")
-        await state.clear()
+    if target_user_id and target_user_id in active_dialogs:
+        del active_dialogs[target_user_id]
+    
+    await state.clear()
+    
+    # Уведомляем пользователя
+    try:
+        await bot.send_message(
+            chat_id=target_user_id,
+            text="💬 *Диалог с менеджером завершен*\n\nСпасибо за общение! Если у вас остались вопросы, используйте кнопку 'Начать'.",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        pass
+    
+    await message.answer(f"✅ Диалог с пользователем {target_user_id} завершен")
+
+# Обработка сообщений админа в режиме диалога
+@dp.message(AdminStates.in_dialog)
+async def handle_admin_dialog_message(message: types.Message, state: FSMContext):
+    """Обрабатывает сообщения админа в режиме диалога"""
+    if str(message.from_user.id) != ADMIN_ID:
+        return
+    
+    data = await state.get_data()
+    target_user_id = data.get('target_user_id')
+    
+    if not target_user_id or target_user_id not in active_dialogs:
+        await message.answer("❌ Диалог не активен. Используйте /stop_dialog для выхода.")
         return
     
     try:
@@ -348,24 +418,49 @@ async def handle_admin_message(message: types.Message, state: FSMContext):
             text=message.text
         )
         
-        await message.answer(f"✅ Сообщение отправлено пользователю {target_user_id}")
-        logging.info(f"📨 Админ отправил сообщение пользователю {target_user_id}: {message.text}")
+        # Логируем сообщение админа
+        db.log_interaction(target_user_id, 'admin_message', message.text)
         
     except Exception as e:
         await message.answer(f"❌ Ошибка отправки сообщения: {e}")
-        logging.error(f"Ошибка отправки сообщения от админа: {e}")
-    
-    await state.clear()
 
+# Обработка сообщений пользователей (пересылка админу если есть активный диалог)
 @dp.message()
-async def handle_other_messages(message: types.Message):
+async def handle_user_messages(message: types.Message):
     user_id = message.from_user.id
     user_data_text = message.text
     
-    # Если это не кнопка "Начать", логируем и отвечаем
-    if message.text != "🚀 Начать":
+    # Если это кнопка "Начать" - обрабатываем как старт
+    if message.text == "🚀 Начать":
+        await handle_start_button(message)
+        return
+    
+    # Если у пользователя активный диалог с админом
+    if user_id in active_dialogs:
+        # Пересылаем сообщение админу
+        user_info = f"👤 Пользователь: {message.from_user.first_name} (ID: {user_id})"
+        if message.from_user.username:
+            user_info += f" @{message.from_user.username}"
+        
+        admin_message = f"💬 *Сообщение от пользователя:*\n\n{user_data_text}\n\n{user_info}"
+        
+        try:
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text=admin_message,
+                parse_mode='Markdown'
+            )
+            
+            # Логируем сообщение пользователя
+            db.log_interaction(user_id, 'user_message_dialog', user_data_text)
+            
+        except Exception as e:
+            logging.error(f"Ошибка пересылки сообщения админу: {e}")
+    
+    else:
+        # Стандартная обработка для пользователей без активного диалога
         db.log_interaction(user_id, 'sent_message', user_data_text)
-        response_text = "🤖 Я бот для подключения к VIP сигналам по золоту.\n\nИспользуйте кнопку 'Начать' для навигации или напишите https://t.me/m/XCFTGFzeNzVi для связи с менеджером."
+        response_text = "🤖 Я бот для подключения к VIP сигналам по золоту.\n\nИспользуйте кнопку 'Начать' для навигации."
         await message.answer(response_text, reply_markup=start_keyboard)
 
 # Фоновая задача для напоминаний
@@ -422,7 +517,8 @@ async def main():
     print("👨‍💼 Менеджер: https://t.me/m/XCFTGFzeNzVi")
     print(f"📨 Уведомления админу: {ADMIN_ID}")
     print("🔄 Кнопка 'Начать' всегда доступна внизу экрана")
-    print("💬 Функция ответа админа активирована")
+    print("💬 Система диалогов активирована")
+    print("📝 Команды для админа: /stop_dialog - завершить диалог")
     
     # Запускаем бота
     await dp.start_polling(bot)
