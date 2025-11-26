@@ -22,7 +22,7 @@ logging.basicConfig(
 # Получение токена из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI')
 # ID админа для получения данных
-ADMIN_ID = os.getenv('ADMIN_ID', '8089114323')
+ADMIN_ID = os.getenv('ADMIN_ID', '5067425279')
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
