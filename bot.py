@@ -2,7 +2,7 @@
 import logging
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, date
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -104,6 +104,168 @@ async def send_to_admin(user_info: str, registration_data: str, user_id: int):
             logging.info(f"✅ Данные отправлены админу {ADMIN_ID} (без Markdown)")
         except Exception as e2:
             logging.error(f"❌ Ошибка отправки данных админу даже без Markdown: {e2}")
+
+# Команда для просмотра статистики за сегодня
+@dp.message(Command("stats"))
+async def cmd_stats(message: types.Message):
+    """Показывает статистику за сегодня"""
+    if str(message.from_user.id) != ADMIN_ID:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    
+    try:
+        # Получаем статистику за сегодня
+        today = date.today().isoformat()
+        stats = db.get_today_stats(today)
+        
+        if not stats:
+            await message.answer("📊 *Статистика за сегодня*\n\nНет активностей за сегодня", parse_mode='Markdown')
+            return
+        
+        stats_text = "📊 *Статистика за сегодня*\n\n"
+        
+        # Общая статистика
+        stats_text += f"👥 *Всего пользователей:* {stats['total_users']}\n"
+        stats_text += f"🆕 *Новых пользователей:* {stats['new_users']}\n"
+        stats_text += f"📈 *Всего действий:* {stats['total_actions']}\n\n"
+        
+        # Детальная статистика по действиям
+        stats_text += "*Топ действий:*\n"
+        for action, count in stats['top_actions'][:10]:  # Показываем топ-10 действий
+            action_name = {
+                'start_command': '🚀 Старт',
+                'viewed_vip_benefits': '🎯 VIP преимущества',
+                'selected_has_broker': '📈 Есть брокер', 
+                'selected_completed_registration': '📋 Регистрация',
+                'clicked_make_payment': '💳 Оплата',
+                'submitted_registration_data': '✅ Отправил данные',
+                'sent_message': '💬 Сообщения',
+                'user_message_dialog': '💬 Сообщения в диалоге',
+                'admin_message': '👨‍💼 Ответы админа'
+            }.get(action, action)
+            
+            stats_text += f"• {action_name}: {count}\n"
+        
+        # Последние активности
+        stats_text += f"\n*Последние 5 активностей:*\n"
+        for activity in stats['recent_activities'][:5]:
+            user_info = f"ID: {activity['user_id']}"
+            if activity['first_name']:
+                user_info += f" ({activity['first_name']})"
+            
+            time = datetime.fromisoformat(activity['timestamp']).strftime('%H:%M')
+            action_display = {
+                'start_command': '🚀 Старт',
+                'viewed_vip_benefits': '🎯 VIP',
+                'selected_has_broker': '📈 Брокер',
+                'selected_completed_registration': '📋 Рег.',
+                'clicked_make_payment': '💳 Оплата',
+                'submitted_registration_data': '✅ Данные',
+                'sent_message': '💬 Сообщ.',
+                'user_message_dialog': '💬 Диалог',
+                'admin_message': '👨‍💼 Ответ'
+            }.get(activity['action'], activity['action'])
+            
+            stats_text += f"• {time} - {user_info} - {action_display}\n"
+        
+        await message.answer(stats_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        logging.error(f"Ошибка получения статистики: {e}")
+        await message.answer(f"❌ Ошибка получения статистики: {e}")
+
+# Команда для детального просмотра действий пользователя
+@dp.message(Command("user_stats"))
+async def cmd_user_stats(message: types.Message):
+    """Показывает детальную статистику по пользователю"""
+    if str(message.from_user.id) != ADMIN_ID:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    
+    try:
+        # Получаем аргумент - user_id
+        args = message.text.split()
+        if len(args) < 2:
+            await message.answer("❌ Укажите ID пользователя: /user_stats <user_id>")
+            return
+        
+        user_id = int(args[1])
+        today = date.today().isoformat()
+        user_stats = db.get_user_today_stats(user_id, today)
+        
+        if not user_stats:
+            await message.answer(f"❌ Нет активностей у пользователя {user_id} за сегодня")
+            return
+        
+        user_info = f"👤 *Пользователь:* {user_stats['user_info']['first_name'] or 'Не указано'}\n"
+        user_info += f"📱 *ID:* {user_id}\n"
+        if user_stats['user_info']['username']:
+            user_info += f"🔗 *Username:* @{user_stats['user_info']['username']}\n"
+        
+        stats_text = f"📊 *Статистика пользователя за сегодня*\n\n{user_info}\n"
+        stats_text += f"📈 *Всего действий:* {user_stats['total_actions']}\n\n"
+        
+        stats_text += "*История действий:*\n"
+        for action in user_stats['actions']:
+            time = datetime.fromisoformat(action['timestamp']).strftime('%H:%M:%S')
+            action_name = {
+                'start_command': '🚀 Старт',
+                'viewed_vip_benefits': '🎯 VIP преимущества', 
+                'selected_has_broker': '📈 Есть брокер',
+                'selected_completed_registration': '📋 Регистрация',
+                'clicked_make_payment': '💳 Оплата',
+                'submitted_registration_data': '✅ Отправил данные',
+                'sent_message': '💬 Сообщение',
+                'user_message_dialog': '💬 Сообщение в диалоге',
+                'admin_message': '👨‍💼 Ответ админа'
+            }.get(action['action'], action['action'])
+            
+            data = f" - {action['data']}" if action['data'] else ""
+            stats_text += f"• {time} - {action_name}{data}\n"
+        
+        await message.answer(stats_text, parse_mode='Markdown')
+        
+    except ValueError:
+        await message.answer("❌ Неверный формат ID пользователя")
+    except Exception as e:
+        logging.error(f"Ошибка получения статистики пользователя: {e}")
+        await message.answer(f"❌ Ошибка получения статистики: {e}")
+
+# Команда для просмотра новых пользователей за сегодня
+@dp.message(Command("new_users"))
+async def cmd_new_users(message: types.Message):
+    """Показывает новых пользователей за сегодня"""
+    if str(message.from_user.id) != ADMIN_ID:
+        await message.answer("❌ У вас нет прав для этой команды")
+        return
+    
+    try:
+        today = date.today().isoformat()
+        new_users = db.get_new_users_today(today)
+        
+        if not new_users:
+            await message.answer("📊 *Новые пользователи за сегодня*\n\nНет новых пользователей за сегодня", parse_mode='Markdown')
+            return
+        
+        stats_text = "📊 *Новые пользователи за сегодня*\n\n"
+        
+        for user in new_users:
+            user_info = f"👤 ID: {user['user_id']}"
+            if user['first_name']:
+                user_info += f" - {user['first_name']}"
+            if user['username']:
+                user_info += f" (@{user['username']})"
+            
+            time = datetime.fromisoformat(user['created_at']).strftime('%H:%M')
+            stats_text += f"• {time} - {user_info}\n"
+        
+        stats_text += f"\nВсего новых: {len(new_users)}"
+        
+        await message.answer(stats_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        logging.error(f"Ошибка получения новых пользователей: {e}")
+        await message.answer(f"❌ Ошибка получения данных: {e}")
 
 async def show_vip_benefits_from_start(message: types.Message):
     """Показывает VIP преимущества сразу (для возвращающихся пользователей)"""
@@ -544,7 +706,11 @@ async def main():
     print(f"📨 Уведомления админу: {ADMIN_ID}")
     print("🔄 Кнопка 'Начать' всегда доступна внизу экрана")
     print("💬 Система диалогов активирована")
-    print("📝 Команды для админа: /stop_dialog - завершить диалог")
+    print("📊 Команды статистики для админа:")
+    print("   /stats - общая статистика за сегодня")
+    print("   /user_stats <user_id> - статистика по пользователю") 
+    print("   /new_users - новые пользователи за сегодня")
+    print("   /stop_dialog - завершить диалог")
     
     # Запускаем бота
     await dp.start_polling(bot)
