@@ -159,6 +159,8 @@ async def process_start(message: types.Message):
     # Если пользователь не новый ИЛИ у него больше 1 взаимодействия, показываем VIP сразу
     if not is_new_user or interaction_count > 1:
         await show_vip_benefits_from_start(message)
+        # Всегда показываем кнопку "Начать" после ответа
+        await message.answer("Используйте кнопку 'Начать' для возврата в главное меню:", reply_markup=start_keyboard)
         return
     
     # Для новых пользователей - стандартное приветствие
@@ -172,6 +174,8 @@ async def process_start(message: types.Message):
     ])
     
     await message.answer(welcome_text, reply_markup=keyboard)
+    # Показываем кнопку "Начать" после приветствия
+    await message.answer("Используйте кнопку 'Начать' для быстрого доступа к меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "vip_benefits")
 async def show_vip_benefits(callback: CallbackQuery):
@@ -202,6 +206,8 @@ https://nmofficialru.com/o2o7sqk1265d
     ])
     
     await callback.message.edit_text(vip_text, reply_markup=keyboard, parse_mode='Markdown')
+    # После редактирования сообщения отправляем кнопку "Начать"
+    await callback.message.answer("Используйте кнопку 'Начать' для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "has_broker")
 async def show_has_broker_options(callback: CallbackQuery):
@@ -226,6 +232,7 @@ async def show_has_broker_options(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text(broker_text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback.message.answer("Используйте кнопку 'Начать' для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "make_payment")
 async def show_payment_instructions(callback: CallbackQuery):
@@ -248,6 +255,7 @@ async def show_payment_instructions(callback: CallbackQuery):
     ])
     
     await callback.message.edit_text(payment_text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback.message.answer("Используйте кнопку 'Начать' для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "completed_registration")
 async def show_completed_registration(callback: CallbackQuery, state: FSMContext):
@@ -271,6 +279,7 @@ async def show_completed_registration(callback: CallbackQuery, state: FSMContext
     await callback.message.answer(reservation_text)
     
     await state.set_state(RegistrationStates.awaiting_data)
+    await callback.message.answer("Используйте кнопку 'Начать' для возврата в главное меню:", reply_markup=start_keyboard)
 
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start(callback: CallbackQuery):
@@ -309,6 +318,8 @@ async def handle_registration_data(message: types.Message, state: FSMContext):
 Мы зарезервировали для вас место на 24 часа! 🎉"""
     
     await message.answer(confirmation_text, parse_mode='Markdown')
+    # Добавляем кнопку "Начать" после подтверждения
+    await message.answer("Используйте кнопку 'Начать' для возврата в главное меню:", reply_markup=start_keyboard)
 
 # Обработка кнопки "Начать диалог" от админа
 @dp.callback_query(F.data.startswith("start_dialog_"))
@@ -385,12 +396,13 @@ async def stop_dialog(message: types.Message, state: FSMContext):
     
     await state.clear()
     
-    # Уведомляем пользователя
+    # Уведомляем пользователя С КНОПКОЙ "НАЧАТЬ"
     try:
         await bot.send_message(
             chat_id=target_user_id,
             text="💬 *Диалог с менеджером завершен*\n\nСпасибо за общение! Если у вас остались вопросы, используйте кнопку 'Начать'.",
-            parse_mode='Markdown'
+            parse_mode='Markdown',
+            reply_markup=start_keyboard  # ВОТ ТУТ ДОБАВЛЯЕМ КНОПКУ
         )
     except Exception as e:
         pass
