@@ -192,5 +192,128 @@ class Database:
             logger.error(f"❌ Ошибка проверки пользователя: {e}")
             return False
 
+    def get_today_stats(self, date):
+        """Получаем статистику за сегодня"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # Общее количество пользователей
+            cursor.execute('SELECT COUNT(*) FROM users')
+            total_users = cursor.fetchone()[0]
+            
+            # Новые пользователи за сегодня
+            cursor.execute('''
+                SELECT COUNT(*) FROM users 
+                WHERE DATE(created_at) = DATE(?)
+            ''', (date,))
+            new_users = cursor.fetchone()[0]
+            
+            # Всего действий за сегодня
+            cursor.execute('''
+                SELECT COUNT(*) FROM interactions 
+                WHERE DATE(timestamp) = DATE(?)
+            ''', (date,))
+            total_actions = cursor.fetchone()[0]
+            
+            # Топ действий за сегодня
+            cursor.execute('''
+                SELECT action, COUNT(*) as count 
+                FROM interactions 
+                WHERE DATE(timestamp) = DATE(?)
+                GROUP BY action 
+                ORDER BY count DESC
+            ''', (date,))
+            top_actions = [(row[0], row[1]) for row in cursor.fetchall()]
+            
+            # Последние активности
+            cursor.execute('''
+                SELECT i.*, u.first_name, u.username 
+                FROM interactions i
+                LEFT JOIN users u ON i.user_id = u.user_id
+                WHERE DATE(i.timestamp) = DATE(?)
+                ORDER BY i.timestamp DESC
+                LIMIT 10
+            ''', (date,))
+            recent_activities = [dict(row) for row in cursor.fetchall()]
+            
+            return {
+                'total_users': total_users,
+                'new_users': new_users,
+                'total_actions': total_actions,
+                'top_actions': top_actions,
+                'recent_activities': recent_activities
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения статистики: {e}")
+            return {
+                'total_users': 0,
+                'new_users': 0,
+                'total_actions': 0,
+                'top_actions': [],
+                'recent_activities': []
+            }
+
+    def get_user_today_stats(self, user_id, date):
+        """Получаем статистику пользователя за сегодня"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # Информация о пользователе
+            cursor.execute('''
+                SELECT first_name, username FROM users 
+                WHERE user_id = ?
+            ''', (user_id,))
+            user_row = cursor.fetchone()
+            
+            if not user_row:
+                return None
+            
+            user_info = {
+                'first_name': user_row[0],
+                'username': user_row[1]
+            }
+            
+            # Всего действий пользователя за сегодня
+            cursor.execute('''
+                SELECT COUNT(*) FROM interactions 
+                WHERE user_id = ? AND DATE(timestamp) = DATE(?)
+            ''', (user_id, date))
+            total_actions = cursor.fetchone()[0]
+            
+            # Действия пользователя за сегодня
+            cursor.execute('''
+                SELECT action, data, timestamp 
+                FROM interactions 
+                WHERE user_id = ? AND DATE(timestamp) = DATE(?)
+                ORDER BY timestamp
+            ''', (user_id, date))
+            actions = [dict(row) for row in cursor.fetchall()]
+            
+            return {
+                'user_info': user_info,
+                'total_actions': total_actions,
+                'actions': actions
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения статистики пользователя: {e}")
+            return None
+
+    def get_new_users_today(self, date):
+        """Получаем новых пользователей за сегодня"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT user_id, first_name, username, created_at 
+                FROM users 
+                WHERE DATE(created_at) = DATE(?)
+                ORDER BY created_at DESC
+            ''', (date,))
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения новых пользователей: {e}")
+            return []
+
 # Создаем глобальный экземпляр базы данных
 db = Database()
