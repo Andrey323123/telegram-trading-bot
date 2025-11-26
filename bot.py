@@ -21,8 +21,8 @@ logging.basicConfig(
 
 # Получение токена из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8288540260:AAF5Mf1U0QU-BHLY7dvhgvBO-wafexMZUaI')
-# ID админа для получения данных (замените на ваш ID)
-ADMIN_ID = os.getenv('ADMIN_ID', '8089114323')  # Замените на ваш ID
+# ID админа для получения данных
+ADMIN_ID = os.getenv('ADMIN_ID', '8089114323')
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
@@ -33,22 +33,49 @@ dp = Dispatcher(storage=storage)
 class RegistrationStates(StatesGroup):
     awaiting_data = State()
 
+def escape_markdown(text: str) -> str:
+    """Экранирует спецсимволы Markdown"""
+    if not text:
+        return ""
+    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in escape_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
 async def send_to_admin(user_info: str, registration_data: str):
     """Отправляем данные админу"""
     try:
+        # Экранируем все текстовые данные
+        user_info_escaped = escape_markdown(user_info)
+        registration_data_escaped = escape_markdown(registration_data)
+        
         message_text = f"📥 *НОВЫЕ ДАННЫЕ ОТ ПОЛЬЗОВАТЕЛЯ*\n\n" \
-                      f"👤 *Информация о пользователе:*\n{user_info}\n\n" \
-                      f"📋 *Данные регистрации:*\n{registration_data}\n\n" \
+                      f"👤 *Информация о пользователе:*\n{user_info_escaped}\n\n" \
+                      f"📋 *Данные регистрации:*\n{registration_data_escaped}\n\n" \
                       f"⏰ *Время получения:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
         await bot.send_message(
             chat_id=ADMIN_ID,
             text=message_text,
-            parse_mode='Markdown'
+            parse_mode='MarkdownV2'
         )
         logging.info(f"✅ Данные отправлены админу {ADMIN_ID}")
     except Exception as e:
         logging.error(f"❌ Ошибка отправки данных админу: {e}")
+        # Пробуем отправить без Markdown
+        try:
+            plain_text = f"📥 НОВЫЕ ДАННЫЕ ОТ ПОЛЬЗОВАТЕЛЯ\n\n" \
+                        f"👤 Информация о пользователе:\n{user_info}\n\n" \
+                        f"📋 Данные регистрации:\n{registration_data}\n\n" \
+                        f"⏰ Время получения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text=plain_text
+            )
+            logging.info(f"✅ Данные отправлены админу {ADMIN_ID} (без Markdown)")
+        except Exception as e2:
+            logging.error(f"❌ Ошибка отправки данных админу даже без Markdown: {e2}")
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -193,7 +220,7 @@ async def handle_registration_data(message: types.Message, state: FSMContext):
     
     # Формируем информацию о пользователе для админа
     user_info = f"ID: {user.id}\n" \
-                f"Имя: {user.first_name}\n" \
+                f"Имя: {user.first_name or 'Не указано'}\n" \
                 f"Фамилия: {user.last_name or 'Не указана'}\n" \
                 f"Username: @{user.username or 'Не указан'}\n" \
                 f"Язык: {user.language_code or 'Не указан'}"
