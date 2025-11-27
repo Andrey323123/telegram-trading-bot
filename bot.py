@@ -48,26 +48,13 @@ start_keyboard = ReplyKeyboardMarkup(
     one_time_keyboard=False  # Не скрывается после нажатия
 )
 
-def escape_markdown(text: str) -> str:
-    """Экранирует спецсимволы Markdown"""
-    if not text:
-        return ""
-    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in escape_chars:
-        text = text.replace(char, f'\\{char}')
-    return text
-
 async def send_to_admin(user_info: str, registration_data: str, user_id: int):
     """Отправляем данные админу с кнопкой ответа"""
     try:
-        # Экранируем все текстовые данные
-        user_info_escaped = escape_markdown(user_info)
-        registration_data_escaped = escape_markdown(registration_data)
-        
-        message_text = f"📥 *НОВЫЕ ДАННЫЕ ОТ ПОЛЬЗОВАТЕЛЯ*\n\n" \
-                      f"👤 *Информация о пользователе:*\n{user_info_escaped}\n\n" \
-                      f"📋 *Данные регистрации:*\n{registration_data_escaped}\n\n" \
-                      f"⏰ *Время получения:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        message_text = f"📥 НОВЫЕ ДАННЫЕ ОТ ПОЛЬЗОВАТЕЛЯ\n\n" \
+                      f"👤 Информация о пользователе:\n{user_info}\n\n" \
+                      f"📋 Данные регистрации:\n{registration_data}\n\n" \
+                      f"⏰ Время получения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
         # Клавиатура с кнопкой "Ответить"
         reply_keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -78,32 +65,11 @@ async def send_to_admin(user_info: str, registration_data: str, user_id: int):
         await bot.send_message(
             chat_id=ADMIN_ID,
             text=message_text,
-            reply_markup=reply_keyboard,
-            parse_mode='MarkdownV2'
+            reply_markup=reply_keyboard
         )
         logging.info(f"✅ Данные отправлены админу {ADMIN_ID} с кнопкой диалога")
     except Exception as e:
         logging.error(f"❌ Ошибка отправки данных админу: {e}")
-        # Пробуем отправить без Markdown
-        try:
-            plain_text = f"📥 НОВЫЕ ДАННЫЕ ОТ ПОЛЬЗОВАТЕЛЯ\n\n" \
-                        f"👤 Информация о пользователе:\n{user_info}\n\n" \
-                        f"📋 Данные регистрации:\n{registration_data}\n\n" \
-                        f"⏰ Время получения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            
-            reply_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💬 Начать диалог", callback_data=f"start_dialog_{user_id}")],
-                [InlineKeyboardButton(text="❌ Закрыть", callback_data=f"close_dialog_{user_id}")]
-            ])
-            
-            await bot.send_message(
-                chat_id=ADMIN_ID,
-                text=plain_text,
-                reply_markup=reply_keyboard
-            )
-            logging.info(f"✅ Данные отправлены админу {ADMIN_ID} (без Markdown)")
-        except Exception as e2:
-            logging.error(f"❌ Ошибка отправки данных админу даже без Markdown: {e2}")
 
 # Команда для просмотра статистики за сегодня
 @dp.message(Command("stats"))
@@ -119,18 +85,18 @@ async def cmd_stats(message: types.Message):
         stats = db.get_today_stats(today)
         
         if not stats:
-            await message.answer("📊 *Статистика за сегодня*\n\nНет активностей за сегодня", parse_mode='Markdown')
+            await message.answer("📊 Статистика за сегодня\n\nНет активностей за сегодня")
             return
         
-        stats_text = "📊 *Статистика за сегодня*\n\n"
+        stats_text = "📊 Статистика за сегодня\n\n"
         
         # Общая статистика
-        stats_text += f"👥 *Всего пользователей:* {stats['total_users']}\n"
-        stats_text += f"🆕 *Новых пользователей:* {stats['new_users']}\n"
-        stats_text += f"📈 *Всего действий:* {stats['total_actions']}\n\n"
+        stats_text += f"👥 Всего пользователей: {stats['total_users']}\n"
+        stats_text += f"🆕 Новых пользователей: {stats['new_users']}\n"
+        stats_text += f"📈 Всего действий: {stats['total_actions']}\n\n"
         
         # Детальная статистика по действиям
-        stats_text += "*Топ действий:*\n"
+        stats_text += "Топ действий:\n"
         for action, count in stats['top_actions'][:10]:  # Показываем топ-10 действий
             action_name = {
                 'start_command': '🚀 Старт',
@@ -147,7 +113,7 @@ async def cmd_stats(message: types.Message):
             stats_text += f"• {action_name}: {count}\n"
         
         # Последние активности
-        stats_text += f"\n*Последние 5 активностей:*\n"
+        stats_text += f"\nПоследние 5 активностей:\n"
         for activity in stats['recent_activities'][:5]:
             user_info = f"ID: {activity['user_id']}"
             if activity['first_name']:
@@ -168,7 +134,7 @@ async def cmd_stats(message: types.Message):
             
             stats_text += f"• {time} - {user_info} - {action_display}\n"
         
-        await message.answer(stats_text, parse_mode='Markdown')
+        await message.answer(stats_text)
         
     except Exception as e:
         logging.error(f"Ошибка получения статистики: {e}")
@@ -197,15 +163,15 @@ async def cmd_user_stats(message: types.Message):
             await message.answer(f"❌ Нет активностей у пользователя {user_id} за сегодня")
             return
         
-        user_info = f"👤 *Пользователь:* {user_stats['user_info']['first_name'] or 'Не указано'}\n"
-        user_info += f"📱 *ID:* {user_id}\n"
+        user_info = f"👤 Пользователь: {user_stats['user_info']['first_name'] or 'Не указано'}\n"
+        user_info += f"📱 ID: {user_id}\n"
         if user_stats['user_info']['username']:
-            user_info += f"🔗 *Username:* @{user_stats['user_info']['username']}\n"
+            user_info += f"🔗 Username: @{user_stats['user_info']['username']}\n"
         
-        stats_text = f"📊 *Статистика пользователя за сегодня*\n\n{user_info}\n"
-        stats_text += f"📈 *Всего действий:* {user_stats['total_actions']}\n\n"
+        stats_text = f"📊 Статистика пользователя за сегодня\n\n{user_info}\n"
+        stats_text += f"📈 Всего действий: {user_stats['total_actions']}\n\n"
         
-        stats_text += "*История действий:*\n"
+        stats_text += "История действий:\n"
         for action in user_stats['actions']:
             time = datetime.fromisoformat(action['timestamp']).strftime('%H:%M:%S')
             action_name = {
@@ -223,7 +189,7 @@ async def cmd_user_stats(message: types.Message):
             data = f" - {action['data']}" if action['data'] else ""
             stats_text += f"• {time} - {action_name}{data}\n"
         
-        await message.answer(stats_text, parse_mode='Markdown')
+        await message.answer(stats_text)
         
     except ValueError:
         await message.answer("❌ Неверный формат ID пользователя")
@@ -244,10 +210,10 @@ async def cmd_new_users(message: types.Message):
         new_users = db.get_new_users_today(today)
         
         if not new_users:
-            await message.answer("📊 *Новые пользователи за сегодня*\n\nНет новых пользователей за сегодня", parse_mode='Markdown')
+            await message.answer("📊 Новые пользователи за сегодня\n\nНет новых пользователей за сегодня")
             return
         
-        stats_text = "📊 *Новые пользователи за сегодня*\n\n"
+        stats_text = "📊 Новые пользователи за сегодня\n\n"
         
         for user in new_users:
             user_info = f"👤 ID: {user['user_id']}"
@@ -261,7 +227,7 @@ async def cmd_new_users(message: types.Message):
         
         stats_text += f"\nВсего новых: {len(new_users)}"
         
-        await message.answer(stats_text, parse_mode='Markdown')
+        await message.answer(stats_text)
         
     except Exception as e:
         logging.error(f"Ошибка получения новых пользователей: {e}")
@@ -501,11 +467,10 @@ async def handle_start_dialog(callback: CallbackQuery, state: FSMContext):
     # Уведомляем админа
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
-        f"💬 *Диалог начат с пользователем {user_id}*\n\n"
+        f"💬 Диалог начат с пользователем {user_id}\n\n"
         f"Теперь все ваши сообщения будут отправляться этому пользователю от имени бота.\n"
         f"И все сообщения от пользователя будут приходить вам.\n\n"
-        f"Используйте команду /stop_dialog чтобы завершить диалог.",
-        parse_mode='Markdown'
+        f"Используйте команду /stop_dialog чтобы завершить диалог."
     )
     
     # Уведомляем пользователя
@@ -630,13 +595,12 @@ async def handle_user_messages(message: types.Message):
         if message.from_user.username:
             user_info += f" @{message.from_user.username}"
         
-        admin_message = f"💬 *Сообщение от пользователя:*\n\n{user_data_text}\n\n{user_info}"
+        admin_message = f"💬 Сообщение от пользователя:\n\n{user_data_text}\n\n{user_info}"
         
         try:
             await bot.send_message(
                 chat_id=ADMIN_ID,
-                text=admin_message,
-                parse_mode='Markdown'
+                text=admin_message
             )
             
             # Логируем сообщение пользователя
